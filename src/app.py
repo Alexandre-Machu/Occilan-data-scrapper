@@ -344,14 +344,12 @@ def _load_cached_matches_for_ids(ids):
     return matches
 
 
-# Optional: if environment requests auto-processing on start, fetch missing matches
+# Riot API key and region (auto-processing disabled by default; only admin can trigger processing)
 try:
     _api_key = os.environ.get('OCCILAN_RIOT_API_KEY')
-    _auto = os.environ.get('OCCILAN_AUTO_PROCESS', '').lower() in ('1', 'true', 'yes')
     _region = os.environ.get('OCCILAN_RIOT_API_REGION', 'euw')
 except Exception:
     _api_key = None
-    _auto = False
     _region = 'euw'
 
 def _auto_process_matches_if_requested(ids, edition, api_key, region='euw'):
@@ -430,7 +428,8 @@ def _auto_process_matches_if_requested(ids, edition, api_key, region='euw'):
 
 # If admin clicked or file-change flagged processing, run it now (function defined above)
 try:
-    if st.session_state.get('admin_request_process') and _api_key:
+    # Only perform auto-processing when explicitly requested by an admin via the sidebar button.
+    if is_admin and st.session_state.get('admin_request_process') and _api_key:
         _auto_process_matches_if_requested(saved_matches, edition, _api_key, region=_region)
         # clear flag
         st.session_state['admin_request_process'] = False
