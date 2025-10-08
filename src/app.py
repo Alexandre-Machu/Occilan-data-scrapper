@@ -301,16 +301,22 @@ st.sidebar.markdown(f"**Matchs sauvegardés pour l'édition {edition}:** {len(sa
 # You will manage match IDs manually in the repository under data/ (e.g. data/tournament_matches.json)
 
 # Admin auth: show processing controls only to authenticated admin users.
-_admin_secret_env = None
+_admin_secret_env = os.environ.get('OCCILAN_ADMIN_SECRET')
 try:
-    # prefer an explicit environment variable, but allow Streamlit Cloud Secrets
-    # (accessible via st.secrets) as a fallback so deployers can set the secret
-    # using the Cloud UI.
-    _admin_secret_env = os.environ.get('OCCILAN_ADMIN_SECRET') or (
-        st.secrets.get('OCCILAN_ADMIN_SECRET') if hasattr(st, 'secrets') and isinstance(st.secrets, dict) else None
-    )
+    # If not present in the environment, try Streamlit Cloud secrets. `st.secrets`
+    # is not necessarily a dict instance, so call `.get()` and fall back to
+    # mapping access if needed.
+    if not _admin_secret_env and hasattr(st, 'secrets'):
+        try:
+            _admin_secret_env = st.secrets.get('OCCILAN_ADMIN_SECRET')
+        except Exception:
+            try:
+                _admin_secret_env = st.secrets['OCCILAN_ADMIN_SECRET']
+            except Exception:
+                _admin_secret_env = _admin_secret_env
 except Exception:
-    _admin_secret_env = os.environ.get('OCCILAN_ADMIN_SECRET')
+    # best-effort: keep whatever the environment provided
+    _admin_secret_env = _admin_secret_env
 is_admin = bool(st.session_state.get('is_admin'))
 if _admin_secret_env:
     admin_input = st.sidebar.text_input('Admin token (pour mise à jour)', type='password')
