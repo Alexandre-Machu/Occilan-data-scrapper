@@ -1,13 +1,18 @@
 import streamlit as st
 import re
 import pandas as pd
-from pathlib import Path
-from src.utils import parse_opgg_adversaires_csv, normalize_elo
+import sys
 import os
 import time
+from pathlib import Path
+# ensure project root on path so imports work on Streamlit Cloud
+ROOT = Path(__file__).parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from utils import parse_opgg_adversaires_csv, normalize_elo
 from dotenv import load_dotenv
-from src.match_stats import get_match, aggregate_matches, parse_match, get_summoner_by_puuid
-from src.utils import champ_id_to_name, champ_name_to_icon_url, load_champion_metadata, format_champion_display
+from match_stats import get_match, aggregate_matches, parse_match
+from utils import champ_id_to_name, champ_name_to_icon_url, load_champion_metadata, format_champion_display
 from pathlib import Path as _Path
 import altair as alt
 from urllib.parse import quote_plus
@@ -230,19 +235,7 @@ def resolve_player_display(player_id: str) -> str:
                             if name:
                                 return name
 
-                            # as a last resort, if we have the Riot API key, try to fetch by full puuid and cache
-                            try:
-                                _api_key = os.environ.get('OCCILAN_RIOT_API_KEY')
-                                _region = os.environ.get('OCCILAN_RIOT_API_REGION', 'euw')
-                                if _api_key:
-                                    res = get_summoner_by_puuid(pu, api_key=_api_key, region=_region, use_cache=True)
-                                    if res and isinstance(res, dict):
-                                        disp = res.get('displayName') or (res.get('raw') or {}).get('name')
-                                        if disp:
-                                            return disp
-                            except Exception:
-                                pass
-                            # if nothing, return the abbreviated input
+                            # do not perform network calls from UI; return the input as fallback
                             return player_id
                 except Exception:
                     continue
@@ -252,21 +245,11 @@ def resolve_player_display(player_id: str) -> str:
     # If we couldn't resolve, try to abbreviate if it looks long/opaque (keep original short names intact)
     try:
         if isinstance(player_id, str) and len(player_id) >= 20 and ' ' not in player_id:
-            # As last resort, if we have a Riot API key, try to resolve the puuid via API (and cache)
+            # do not perform network calls from UI; keep the short display used elsewhere
             try:
-                _api_key = os.environ.get('OCCILAN_RIOT_API_KEY')
-                _region = os.environ.get('OCCILAN_RIOT_API_REGION', 'euw')
-                if _api_key:
-                    res = get_summoner_by_puuid(player_id, api_key=_api_key, region=_region, use_cache=True)
-                    if res and isinstance(res, dict):
-                        # prefer displayName then raw.name
-                        disp = res.get('displayName') or (res.get('raw') or {}).get('name') or (res.get('raw') or {}).get('summonerName')
-                        if disp:
-                            return disp
+                return f"{player_id[:6]}\u2026{player_id[-4:]}"
             except Exception:
-                pass
-            # keep the short display used elsewhere
-            return f"{player_id[:6]}\u2026{player_id[-4:]}"
+                return player_id
     except Exception:
         pass
     return player_id
