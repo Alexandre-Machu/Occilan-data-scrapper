@@ -401,10 +401,26 @@ def _auto_process_matches_if_requested(ids, edition, api_key, region='euw'):
                     # avoid empty strings
                     if name:
                         puuid_map_local[pu] = name
+        # Prepare payload text and only write a new file if content changed.
+        payload = {'matches': [m.get('metadata', {}) for m in cached], 'agg': agg, 'puuid_map': puuid_map_local}
+        new_text = json.dumps(payload, ensure_ascii=False, indent=2)
+
+        # Find latest existing file for this edition (if any)
+        existing_files = sorted([p for p in proc_dir.glob(f'match_stats_edition{edition}_*.json')], key=lambda p: p.stat().st_mtime, reverse=True)
+        if existing_files:
+            try:
+                latest_file = existing_files[0]
+                latest_text = latest_file.read_text(encoding='utf-8')
+                if latest_text == new_text:
+                    st.sidebar.info('Aucun changement — le fichier de stats existant est identique; écriture sautée.')
+                    return False
+            except Exception:
+                # fallback to writing when read fails
+                pass
+
         ts = int(time.time())
         out = proc_dir / f'match_stats_edition{edition}_{ts}.json'
-        payload = {'matches': [m.get('metadata', {}) for m in cached], 'agg': agg, 'puuid_map': puuid_map_local}
-        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        out.write_text(new_text, encoding='utf-8')
         st.sidebar.success(f"Traitement automatique terminé — fichier écrit: {out.name}")
         return True
     except Exception as e:
@@ -423,12 +439,10 @@ except Exception:
 
 
 # perform aggregation now using cached files (no network calls)
-# If requested via env, try to auto-process (fetch missing cached matches and write processed file)
-if _auto and _api_key and saved_matches:
-    try:
-        _auto_process_matches_if_requested(saved_matches, edition, _api_key, region=_region)
-    except Exception:
-        pass
+# NOTE: we intentionally do NOT auto-fetch missing matches during app startup in
+# deployed environments because long network calls at import time can cause the
+# host to kill/restart the process. Manual/admin-triggered processing remains
+# available via the sidebar button.
 
 cached_matches = _load_cached_matches_for_ids(saved_matches)
 if not cached_matches:
