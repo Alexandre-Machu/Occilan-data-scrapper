@@ -301,7 +301,16 @@ st.sidebar.markdown(f"**Matchs sauvegardés pour l'édition {edition}:** {len(sa
 # You will manage match IDs manually in the repository under data/ (e.g. data/tournament_matches.json)
 
 # Admin auth: show processing controls only to authenticated admin users.
-_admin_secret_env = os.environ.get('OCCILAN_ADMIN_SECRET')
+_admin_secret_env = None
+try:
+    # prefer an explicit environment variable, but allow Streamlit Cloud Secrets
+    # (accessible via st.secrets) as a fallback so deployers can set the secret
+    # using the Cloud UI.
+    _admin_secret_env = os.environ.get('OCCILAN_ADMIN_SECRET') or (
+        st.secrets.get('OCCILAN_ADMIN_SECRET') if hasattr(st, 'secrets') and isinstance(st.secrets, dict) else None
+    )
+except Exception:
+    _admin_secret_env = os.environ.get('OCCILAN_ADMIN_SECRET')
 is_admin = bool(st.session_state.get('is_admin'))
 if _admin_secret_env:
     admin_input = st.sidebar.text_input('Admin token (pour mise à jour)', type='password')
@@ -319,6 +328,13 @@ if _admin_secret_env:
             st.session_state['is_admin'] = False
             is_admin = False
             st.sidebar.error('Erreur lors de la validation du token admin')
+else:
+    # Help the deployer understand why the admin control is not shown in cloud.
+    st.sidebar.info(
+        'Mode admin non configuré — la variable d\'environnement OCCILAN_ADMIN_SECRET '
+        'n\'est pas définie pour cette instance. Pour activer le panneau admin, '
+        'ajoutez OCCILAN_ADMIN_SECRET dans les Secrets / Environment variables de Streamlit Cloud.'
+    )
 
 # Detect changes to tournament_matches.json and optionally auto-process when admin
 try:
