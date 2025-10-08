@@ -5,10 +5,11 @@ import sys
 import os
 import time
 from pathlib import Path
-# ensure project root on path so imports work on Streamlit Cloud
+# ensure src/ directory on sys.path so imports like `from utils import ...` work
 ROOT = Path(__file__).parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC_DIR = ROOT / 'src'
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 from utils import parse_opgg_adversaires_csv, normalize_elo
 from dotenv import load_dotenv
 from match_stats import get_match, aggregate_matches, parse_match
