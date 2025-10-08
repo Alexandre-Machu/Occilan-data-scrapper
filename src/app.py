@@ -1,7 +1,17 @@
 import streamlit as st
 import re
 import pandas as pd
+import sys
 from pathlib import Path
+
+# Ensure the repository root is on sys.path so imports like `from src.utils import ...`
+# work when Streamlit runs this file directly (Streamlit sets sys.path[0] to the
+# `src` directory which prevents `src` from being importable). Insert the parent
+# of the `src` folder (the repo root) at the front of sys.path.
+_repo_root = Path(__file__).parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 from src.utils import parse_opgg_adversaires_csv, normalize_elo
 import os
 import time
