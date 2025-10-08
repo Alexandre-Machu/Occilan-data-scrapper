@@ -18,6 +18,26 @@ DATA_DIR = Path(__file__).parent.parent / 'data' / 'raw'
 st.set_page_config(page_title="OcciLan Dashboard", layout='wide')
 st.title("OcciLan - Dashboard (Prototype)")
 
+# Prevent very large raw JSON / preformatted outputs from flooding the UI.
+# Make <pre> blocks scrollable and limited in height so accidental dumps don't take the whole page.
+_PAGE_CSS = """
+<style>
+    /* limit raw pre/code blocks to a reasonable height and enable scrolling */
+    pre, code {
+        max-height: 220px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    /* slightly mute raw blocks so they don't overpower UI */
+    pre { background: rgba(0,0,0,0.6); padding:8px; border-radius:6px; color: #e6eef6; }
+</style>
+"""
+try:
+        st.markdown(_PAGE_CSS, unsafe_allow_html=True)
+except Exception:
+        pass
+
 st.sidebar.header('Configuration')
 # default to edition 6 for viewers
 edition = st.sidebar.selectbox('Choisir édition', [4, 5, 6, 7], index=2)
@@ -561,11 +581,12 @@ if df is not None:
             try:
                 import json as _json
                 data = _json.loads(latest.read_text(encoding='utf-8'))
-                st.subheader('Aperçu agrégé tournoi')
                 agg = data.get('agg', {})
-                # Champions played / banned
-                cols = st.columns(2)
-                with cols[0]:
+                # Collapsible: Aperçu agrégé tournoi (metrics)
+                with st.expander('Aperçu agrégé tournoi', expanded=True):
+                    # Champions played / banned in two columns
+                    cols = st.columns(2)
+                    with cols[0]:
                         st.markdown('### Champions les plus joués')
                         mp = agg.get('most_played_champion')
                         if mp:
@@ -573,221 +594,201 @@ if df is not None:
                             icon = champ_name_to_icon_url(mp)
                             if icon:
                                 st.image(icon, width=64)
-                            st.metric('Champion le plus joué', f"{mp} ({agg.get('most_played_count', 0)})")
-                with cols[1]:
-                    st.markdown('### Champions les plus bannis')
-                    mb_id = agg.get('most_banned_champion_id')
-                    if mb_id:
+                            st.metric('Champion le plus joué', f"{format_champion_display(mp)} ({agg.get('most_played_count', 0)})")
+                    with cols[1]:
+                        st.markdown('### Champions les plus bannis')
+                        mb_id = agg.get('most_banned_champion_id')
+                        if mb_id:
                             # map id -> champion name if DataDragon available
                             mb_name = champ_id_to_name(mb_id) or str(mb_id)
                             icon = champ_name_to_icon_url(mb_name) if mb_name else ''
                             if icon:
                                 st.image(icon, width=64)
-                            st.metric('Champion le plus banni', f"{mb_name} ({agg.get('most_banned_count', 0)})")
+                            st.metric('Champion le plus banni', f"{format_champion_display(mb_name)} ({agg.get('most_banned_count', 0)})")
 
                 # Top players table (display player summonerName when possible)
-                st.markdown('### Tops par statistiques')
-                tops = []
-                for key in ['top_kills','top_cs_per_min','top_deaths','top_kda','top_vision']:
-                    v = agg.get(key)
-                    if v:
-                        player = v.get('player')
-                        tops.append({'stat': key.replace('top_','').replace('_',' ').title(), 'player': resolve_player_display(player), 'value': v.get('value'), 'champion': v.get('champion'), 'role': v.get('role')})
-                if tops:
-                    import pandas as _pd
-                    df_tops = _pd.DataFrame(tops)
-                    # sanitize player-like columns
-                    if 'player' in df_tops.columns:
-                        df_tops['player'] = df_tops['player'].apply(lambda v: resolve_player_display(v))
-                    st.dataframe(df_tops)
+                with st.expander('Tops par statistiques', expanded=False):
+                    st.markdown('### Tops par statistiques')
+                    tops = []
+                    for key in ['top_kills','top_cs_per_min','top_deaths','top_kda','top_vision']:
+                        v = agg.get(key)
+                        if v:
+                            player = v.get('player')
+                            tops.append({'stat': key.replace('top_','').replace('_',' ').title(), 'player': resolve_player_display(player), 'value': v.get('value'), 'champion': v.get('champion'), 'role': v.get('role')})
+                    if tops:
+                        import pandas as _pd
+                        df_tops = _pd.DataFrame(tops)
+                        # sanitize player-like columns
+                        if 'player' in df_tops.columns:
+                            df_tops['player'] = df_tops['player'].apply(lambda v: resolve_player_display(v))
+                        st.dataframe(df_tops)
 
                 # Per-role breakdown
-                st.markdown('### Par rôle')
-                per_role = agg.get('per_role', {})
-                if per_role:
-                    rows = []
-                    for role, info in per_role.items():
-                        rows.append({'role': role,
-                                     'most_played': info.get('most_played_champ'),
-                                     'most_played_count': info.get('most_played_count'),
-                                     'top_kills': resolve_player_display(info.get('top_kills')),
-                                     'top_cs_per_min': resolve_player_display(info.get('top_cs_per_min')),
-                                     'top_deaths': resolve_player_display(info.get('top_deaths'))})
-                    import pandas as _pd
-                    df_rows = _pd.DataFrame(rows)
-                    if 'top_kills' in df_rows.columns:
-                        df_rows['top_kills'] = df_rows['top_kills'].apply(lambda v: resolve_player_display(v))
-                    if 'top_cs_per_min' in df_rows.columns:
-                        df_rows['top_cs_per_min'] = df_rows['top_cs_per_min'].apply(lambda v: resolve_player_display(v))
-                    if 'top_deaths' in df_rows.columns:
-                        df_rows['top_deaths'] = df_rows['top_deaths'].apply(lambda v: resolve_player_display(v))
-                    st.dataframe(df_rows)
-
-                # Charts: champion play counts and ban counts
-                try:
-                    st.markdown('### Répartition des champions joués')
-                    champ_counts = agg.get('champion_counts') or {}
-                    # additionally compute richer champion stats (games, winrate, avg KDA, avg KP)
-                    champ_rows = []
-                    if cached_matches:
-                        per_champ = {}
-                        for mj in cached_matches:
-                            parsed = parse_match(mj)
-                            # compute team kills per match
-                            team_kills = {}
-                            for p in parsed.get('participants', []):
-                                team_kills[p.get('teamId')] = team_kills.get(p.get('teamId'), 0) + (p.get('kills') or 0)
-                            seen_in_match = set()
-                            for p in parsed.get('participants', []):
-                                cname = p.get('championName') or p.get('champion')
-                                if not cname:
-                                    continue
-                                if cname not in per_champ:
-                                    per_champ[cname] = {'games':0,'wins':0,'kda_sum':0.0,'kp_sum':0.0}
-                                # count game once per champion per participant occurrence
-                                per_champ[cname]['games'] += 1
-                                if p.get('win'):
-                                    per_champ[cname]['wins'] += 1
-                                per_champ[cname]['kda_sum'] += (p.get('kda') or 0.0)
-                                tk = team_kills.get(p.get('teamId'), 0)
-                                kp = 0.0
-                                if tk > 0:
-                                    kp = ( (p.get('kills') or 0) + (p.get('assists') or 0) ) / tk * 100.0
-                                per_champ[cname]['kp_sum'] += kp
-                        for cname, info in per_champ.items():
-                            games = info['games']
-                            winrate = round(info['wins']/games*100.0,1) if games else 0.0
-                            avg_kda = round(info['kda_sum']/games,2) if games else 0.0
-                            avg_kp = round(info['kp_sum']/games,1) if games else 0.0
-                            champ_rows.append({'champion': cname, 'games': games, 'winrate': winrate, 'kda': avg_kda, 'kp': avg_kp})
-                        # sort by games desc
-                        champ_rows = sorted(champ_rows, key=lambda x: x['games'], reverse=True)
-                    # render a styled HTML table similar to the provided design
-                    if champ_rows:
-                        html = '<div style="background:#0f1113;padding:10px;border-radius:8px;color:#dfe6ee">'
-                        html += '<table style="width:100%;border-collapse:collapse;font-family:Inter,Helvetica,Arial;">'
-                        html += '<thead><tr style="text-align:left;color:#9fb0c6"><th>Champion</th><th>Games</th><th>WR</th><th>KDA</th><th>KP</th></tr></thead><tbody>'
-                        for r in champ_rows:
-                            disp = format_champion_display(r['champion'])
-                            icon = champ_name_to_icon_url(r['champion'])
-                            icon_html = f'<img src="{icon}" width="28" height="28" style="vertical-align:middle;border-radius:4px;margin-right:8px">' if icon else ''
-                            html += f'<tr style="border-top:1px solid #1e2933;padding:6px">'
-                            html += f'<td style="padding:8px">{icon_html}<span style="vertical-align:middle">{disp}</span></td>'
-                            html += f'<td style="padding:8px">{r['games']}</td>'
-                            wr_color = '#4CAF50' if r['winrate']>=50 else '#F44336'
-                            html += f'<td style="padding:8px;color:{wr_color}">{r['winrate']}%</td>'
-                            html += f'<td style="padding:8px;color:#8e44ad">{r['kda']}</td>'
-                            kp_color = '#4CAF50' if r['kp']>=50 else '#F44336'
-                            html += f'<td style="padding:8px;color:{kp_color}">{r['kp']}%</td>'
-                            html += '</tr>'
-                        html += '</tbody></table></div>'
-                        st.markdown(html, unsafe_allow_html=True)
-                        # finished rendering champ table
-                        # continue with existing charts below (they will appear after)
-                    if champ_counts:
-                        df_champs = _pd.DataFrame([{'champion': k, 'count': int(v)} for k, v in champ_counts.items()])
-                        df_champs = df_champs.sort_values('count', ascending=False).head(25)
-                        # ensure count is integer type for charting
-                        df_champs['count'] = df_champs['count'].astype(int)
-                        chart = alt.Chart(df_champs).mark_bar().encode(
-                            x=alt.X('count:Q', title='Nombre de parties', axis=alt.Axis(format='d')),
-                            y=alt.Y('champion:N', sort='-x', title='Champion'),
-                            tooltip=['champion', 'count']
-                        ).properties(height=400)
-                        st.altair_chart(chart, use_container_width=True)
-
-                    # Bans chart
-                    ban_counts = agg.get('ban_counts') or {}
-                    if ban_counts:
-                        st.markdown('### Champions bannis')
-                        # map ids to names when possible
-                        items = []
-                        for cid, ccount in ban_counts.items():
-                            name = champ_id_to_name(cid) or str(cid)
-                            items.append({'champion': name, 'count': ccount})
-                        df_bans = _pd.DataFrame(items).sort_values('count', ascending=False).head(25)
-                        df_bans['count'] = df_bans['count'].astype(int)
-                        chart_bans = alt.Chart(df_bans).mark_bar(color='#e74c3c').encode(
-                            x=alt.X('count:Q', title='Nombre de bans', axis=alt.Axis(format='d')),
-                            y=alt.Y('champion:N', sort='-x', title='Champion'),
-                            tooltip=['champion', 'count']
-                        ).properties(height=360)
-                        st.altair_chart(chart_bans, use_container_width=True)
-                except Exception:
-                    pass
-
-                st.download_button('Télécharger JSON tournoi', latest.read_bytes(), file_name=latest.name, mime='application/json')
-                # Additional charts: distribution of most played champions and bans
-                try:
-                    st.markdown('### Distribution : Champions joués & bannis')
-                    # reconstruct counts for champions from agg if present, otherwise from matches list
-                    champ_counts = {}
-                    # try agg-specific counters (if present)
-                    if isinstance(agg.get('champion_counts'), dict):
-                        champ_counts = agg.get('champion_counts')
-                    else:
-                        # fallback: count champions from raw matches list in file
-                        matches = data.get('matches', [])
-                        for m in matches:
-                            parts = m.get('participants') or []
-                            for p in parts:
-                                cname = p.get('champion') or p.get('championName')
-                                if not cname:
-                                    continue
-                                champ_counts[cname] = champ_counts.get(cname, 0) + 1
-
-                    if champ_counts:
-                        df_champs = pd.DataFrame([{'champion': k, 'count': int(v)} for k, v in champ_counts.items()])
-                        df_champs = df_champs.sort_values('count', ascending=False).head(20)
-                        df_champs['count'] = df_champs['count'].astype(int)
-                        chart = alt.Chart(df_champs).mark_bar().encode(
-                            x=alt.X('count:Q', title='Nombre de fois joué', axis=alt.Axis(format='d')),
-                            y=alt.Y('champion:N', sort='-x', title='Champion'),
-                            color=alt.Color('count:Q', scale=alt.Scale(scheme='blues'))
-                        )
-                        st.altair_chart(chart.properties(height=400), use_container_width=True)
-
-                    # bans distribution
-                    bans = {}
-                    # try to read ban counts from agg if present (agg may contain 'bans' map)
-                    if isinstance(agg.get('ban_counts'), dict):
-                        bans = agg.get('ban_counts')
-                    else:
-                        # try to reconstruct from raw matches
-                        matches = data.get('matches', [])
-                        for m in matches:
-                            # in cached match metadata we don't have bans normally; try to read full match cached file
-                            # but processed 'matches' may only contain metadata; try to read cached match in data/cache/matches
-                            mid = m.get('matchId') or m.get('gameId')
-                            if not mid:
-                                continue
-                            cache_p = Path(__file__).parent.parent / 'data' / 'cache' / 'matches' / f"{mid}.json"
-                            if cache_p.exists():
-                                try:
-                                    mj = _json.loads(cache_p.read_text(encoding='utf-8'))
-                                    info = mj.get('info', {})
-                                    for t in info.get('teams', []):
-                                        for b in t.get('bans', []) or []:
-                                            cid = b.get('championId')
-                                            if cid:
-                                                bans[cid] = bans.get(cid, 0) + 1
-                                except Exception:
-                                    continue
-
-                    if bans:
-                        # map ids to names where possible
+                with st.expander('Par rôle', expanded=False):
+                    st.markdown('### Par rôle')
+                    per_role = agg.get('per_role', {})
+                    if per_role:
                         rows = []
-                        for cid, cnt in sorted(bans.items(), key=lambda x: x[1], reverse=True)[:20]:
-                            name = champ_id_to_name(cid) or str(cid)
-                            rows.append({'champion': name, 'count': int(cnt)})
-                        df_bans = pd.DataFrame(rows)
-                        df_bans['count'] = df_bans['count'].astype(int)
-                        ban_chart = alt.Chart(df_bans).mark_bar(color='#d9534f').encode(
-                            x=alt.X('count:Q', title='Nombre de bans', axis=alt.Axis(format='d')),
-                            y=alt.Y('champion:N', sort='-x', title='Champion')
-                        )
-                        st.altair_chart(ban_chart.properties(height=360), use_container_width=True)
-                except Exception as e:
-                    st.warning('Impossible d’afficher les graphiques additionnels: ' + str(e))
+                        for role, info in per_role.items():
+                            rows.append({'role': role,
+                                         'most_played': info.get('most_played_champ'),
+                                         'most_played_count': info.get('most_played_count'),
+                                         'top_kills': resolve_player_display(info.get('top_kills')),
+                                         'top_cs_per_min': resolve_player_display(info.get('top_cs_per_min')),
+                                         'top_deaths': resolve_player_display(info.get('top_deaths'))})
+                        import pandas as _pd
+                        df_rows = _pd.DataFrame(rows)
+                        if 'top_kills' in df_rows.columns:
+                            df_rows['top_kills'] = df_rows['top_kills'].apply(lambda v: resolve_player_display(v))
+                        if 'top_cs_per_min' in df_rows.columns:
+                            df_rows['top_cs_per_min'] = df_rows['top_cs_per_min'].apply(lambda v: resolve_player_display(v))
+                        if 'top_deaths' in df_rows.columns:
+                            df_rows['top_deaths'] = df_rows['top_deaths'].apply(lambda v: resolve_player_display(v))
+                        st.dataframe(df_rows)
+
+                # Charts: champion play counts and ban counts (summary)
+                with st.expander('Graphiques : Champions joués & bannis (résumé)', expanded=True):
+                    try:
+                        st.markdown('### Champions joués (résumé)')
+                        champ_counts = agg.get('champion_counts') or {}
+                        if champ_counts:
+                            df_champs = _pd.DataFrame([{'champion': k, 'count': int(v)} for k, v in champ_counts.items()])
+                            df_champs = df_champs.sort_values('count', ascending=False).head(25)
+                            df_champs['count'] = df_champs['count'].astype(int)
+                            df_champs['champion'] = df_champs['champion'].apply(lambda v: format_champion_display(v))
+                            small_chart = alt.Chart(df_champs).mark_bar().encode(
+                                x=alt.X('count:Q', title='Nombre de parties', axis=alt.Axis(format='d')),
+                                y=alt.Y('champion:N', sort='-x', title='Champion'),
+                                tooltip=['champion', 'count']
+                            ).properties(height=300)
+                            st.altair_chart(small_chart, use_container_width=True)
+
+                        # show top banned champions (summary)
+                        ban_counts = agg.get('ban_counts') or {}
+                        if ban_counts:
+                            st.markdown('### Champions bannis (résumé)')
+                            items = []
+                            for cid, ccount in ban_counts.items():
+                                name = champ_id_to_name(cid) or str(cid)
+                                items.append({'champion': format_champion_display(name), 'count': int(ccount)})
+                            df_bans = _pd.DataFrame(items).sort_values('count', ascending=False).head(25)
+                            df_bans['count'] = df_bans['count'].astype(int)
+                            ban_small = alt.Chart(df_bans).mark_bar().encode(
+                                x=alt.X('count:Q', title='Nombre de bans', axis=alt.Axis(format='d')),
+                                y=alt.Y('champion:N', sort='-x', title='Champion'),
+                                tooltip=['champion', 'count']
+                            ).properties(height=300)
+                            st.altair_chart(ban_small, use_container_width=True)
+                    except Exception as e:
+                        st.warning('Impossible d’afficher les graphiques résumé: ' + str(e))
+
+                # Detailed distribution (moved to bottom): show full Distribution with winrate labels
+                with st.expander('Distribution : Champions joués & bannis (détaillé)', expanded=False):
+                    try:
+                        st.markdown('## Champions joués')
+                        # reconstruct counts for champions from agg if present, otherwise from matches list
+                        champ_counts = {}
+                        if isinstance(agg.get('champion_counts'), dict):
+                            champ_counts = agg.get('champion_counts')
+                        else:
+                            matches = data.get('matches', [])
+                            for m in matches:
+                                parts = m.get('participants') or []
+                                for p in parts:
+                                    cname = p.get('champion') or p.get('championName')
+                                    if not cname:
+                                        continue
+                                    champ_counts[cname] = champ_counts.get(cname, 0) + 1
+
+                        if champ_counts:
+                            # compute per-champion win counts when full cached matches are available
+                            champ_wins = {}
+                            champ_games = {k: int(v) for k, v in champ_counts.items()}
+                            try:
+                                for mj in cached_matches:
+                                    info = (mj.get('info') or {})
+                                    for p in info.get('participants', []):
+                                        cname = p.get('championName') or p.get('champion')
+                                        if not cname:
+                                            continue
+                                        if p.get('win'):
+                                            champ_wins[cname] = champ_wins.get(cname, 0) + 1
+                            except Exception:
+                                champ_wins = {}
+
+                            rows = []
+                            for cname, games in sorted(champ_games.items(), key=lambda x: x[1], reverse=True)[:25]:
+                                wins = champ_wins.get(cname, 0)
+                                winrate = round((wins / games * 100.0) if games else 0.0, 1)
+                                rows.append({'champion': format_champion_display(cname), 'count': int(games), 'winrate': winrate})
+
+                            df_champs = pd.DataFrame(rows)
+                            chart = alt.Chart(df_champs).mark_bar().encode(
+                                x=alt.X('count:Q', title='Nombre de fois joué', axis=alt.Axis(format='d')),
+                                y=alt.Y('champion:N', sort='-x', title='Champion'),
+                                color=alt.Color('winrate:Q', title='Winrate %', scale=alt.Scale(domain=[0,100], range=['#d73027','#f46d43','#fdae61','#a6d96a','#1a9850'], clamp=True)),
+                                tooltip=[alt.Tooltip('champion:N'), alt.Tooltip('count:Q', format='d'), alt.Tooltip('winrate:Q', format='.1f')]
+                            ).properties(height=480)
+
+                            text = alt.Chart(df_champs).mark_text(align='left', dx=4, color='white').encode(
+                                x=alt.X('count:Q'),
+                                y=alt.Y('champion:N', sort='-x'),
+                                text=alt.Text('winrate:Q', format='.1f')
+                            )
+
+                            st.altair_chart((chart + text).configure_view(strokeOpacity=0).configure_axis(labelColor='white', titleColor='white'), use_container_width=True)
+
+                        # bans distribution in detailed view
+                        bans = {}
+                        if isinstance(agg.get('ban_counts'), dict):
+                            bans = agg.get('ban_counts')
+                        else:
+                            matches = data.get('matches', [])
+                            for m in matches:
+                                mid = m.get('matchId') or m.get('gameId')
+                                if not mid:
+                                    continue
+                                cache_p = Path(__file__).parent.parent / 'data' / 'cache' / 'matches' / f"{mid}.json"
+                                if cache_p.exists():
+                                    try:
+                                        mj = _json.loads(cache_p.read_text(encoding='utf-8'))
+                                        info = mj.get('info', {})
+                                        for t in info.get('teams', []):
+                                            for b in t.get('bans', []) or []:
+                                                cid = b.get('championId')
+                                                if cid:
+                                                    bans[cid] = bans.get(cid, 0) + 1
+                                    except Exception:
+                                        continue
+
+                        if bans:
+                            rows = []
+                            # recompute per-champ games/wins if not present
+                            champ_games = {k: int(v) for k, v in champ_counts.items()} if champ_counts else {}
+                            champ_wins = champ_wins if 'champ_wins' in locals() else {}
+                            for cid, cnt in sorted(bans.items(), key=lambda x: x[1], reverse=True)[:25]:
+                                name = champ_id_to_name(cid) or str(cid)
+                                games = champ_games.get(name, 0)
+                                wins = champ_wins.get(name, 0)
+                                winrate = round((wins / games * 100.0) if games else 0.0, 1)
+                                rows.append({'champion': format_champion_display(name), 'count': int(cnt), 'winrate': winrate})
+                            df_bans = pd.DataFrame(rows)
+                            df_bans['count'] = df_bans['count'].astype(int)
+                            ban_chart = alt.Chart(df_bans).mark_bar().encode(
+                                x=alt.X('count:Q', title='Nombre de bans', axis=alt.Axis(format='d')),
+                                y=alt.Y('champion:N', sort='-x', title='Champion'),
+                                color=alt.Color('winrate:Q', title='Winrate %', scale=alt.Scale(domain=[0,100], range=['#d73027','#f46d43','#fdae61','#a6d96a','#1a9850'], clamp=True)),
+                                tooltip=[alt.Tooltip('champion:N'), alt.Tooltip('count:Q', format='d'), alt.Tooltip('winrate:Q', format='.1f')]
+                            ).properties(height=420)
+                            ban_text = alt.Chart(df_bans).mark_text(align='left', dx=4, color='white').encode(
+                                x=alt.X('count:Q'),
+                                y=alt.Y('champion:N', sort='-x'),
+                                text=alt.Text('winrate:Q', format='.1f')
+                            )
+                            st.altair_chart((ban_chart + ban_text).configure_view(strokeOpacity=0), use_container_width=True)
+                    except Exception as e:
+                        st.warning('Impossible d’afficher la distribution détaillée: ' + str(e))
             except Exception as e:
                 st.error('Impossible de lire le fichier traité: ' + str(e))
+            # Place the raw JSON download button at the very end of the "Stats Tournoi" section (visible)
+            st.download_button('Télécharger JSON tournoi (brut)', latest.read_bytes(), file_name=latest.name, mime='application/json')

@@ -312,9 +312,13 @@ def format_champion_display(champion_name: str) -> str:
     if not champion_name:
         return ''
     name = str(champion_name)
-    # fix DataDragon oddity
+    # fix DataDragon oddity and known naming exceptions
     if name == 'MonkeyKing':
         return 'Wukong'
+    # Normalize common variants of Fiddlesticks (different spacing/casing)
+    simple = re.sub(r"[^A-Za-z0-9]", "", name).lower()
+    if simple == 'fiddlesticks':
+        return 'Fiddlesticks'
     # split CamelCase (e.g., KogMaw -> Kog Maw) but keep known exceptions compact
     out = ''
     prev = ''
