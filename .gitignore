@@ -1,0 +1,5 @@
+.env
+*.pyc
+__pycache__/
+data/cache/
+# add other local-only files here

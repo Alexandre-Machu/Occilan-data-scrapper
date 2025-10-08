@@ -1,0 +1,167 @@
+{
+  "matches": [
+    {
+      "dataVersion": "2",
+      "matchId": "EUW1_7382841040",
+      "participants": [
+        "9NHvV3I6_ybDmU6gwwM1_X0cajsIrcaueFrXu1VlBccRZHUQ5HSXzBBeFIvT5pG_7lTz_GoiCn6FdQ",
+        "aJFTf0yvt7ErFV6vx84Xsjfc94F_ZIvCXrPU6JFungk_tHDOBL8bC0a-sAxjmgDTISVFJ0u1wVcVkA",
+        "7IHSVbsEfWNSgrJgk5UZzxQMzsREfxdRnUdgKIgW7a8hqyMVdfzz8oTVa6rScWSSPBJlakSRV1HJag",
+        "ObmZKBdnAbkpHzM-6m5BkkI1Oau6SPJCbxCYs4P5pSp7pjIb4h_4QcjJ4k2sKKKErf0apT-MnSxQFA",
+        "HIONcLx95FyAe2cMatBLy7CM1oIb7G8r1hWCjeTYyvO0DKh04NXf6Zx6IaM5KDd03JroV8ydS4hU3w",
+        "QeJhymObZO6iAA4vLGpzVONwLSRgJCIMhyCiqoVe7akfQ0YPxkqTZAPTaXmi_sOYb3HGz-PLOtZLGQ",
+        "Y3H_77rbdzcXDSvOLWbyP1vokZvpbBMRDgaqELlmmHrIVmZZqBM1gEupvQfdYQpC8L2EEf9Z2gVpPQ",
+        "px7dMwwjgORe2cAe5dvUuml9CY8BYQx3LEb4d2O9qeBLzlQsKCOI4h8XRqPJqyCl4f8cCdP4kQ9F3Q",
+        "cViY7lIMmbKSqFEADSR9Xh3THiKF_zPm_-tSe0_GvZx7I20237kuRMeFBizwVbMHz823afAplKUpdA",
+        "4KOfAQJbp04ygHx9OcURq_S13HVkcT2zM5D53pHCY6JLP-1MuaYcZXd161XVyMhKePht0TochAYURg"
+      ]
+    }
+  ],
+  "agg": {
+    "most_played_champion": "Urgot",
+    "most_played_count": 1,
+    "most_played_champion_winrate": 100.0,
+    "least_played_champion": "Urgot",
+    "least_played_count": 1,
+    "most_banned_champion_id": 412,
+    "most_banned_count": 1,
+    "top_kills": {
+      "player": "00HPZ0hI_aiGMF2fTSGUy0R-HNIh6NvspTmzXTIizQ-4vjM",
+      "value": 4,
+      "champion": "Urgot",
+      "role": "Top"
+    },
+    "top_deaths": {
+      "player": "00HPZ0hI_aiGMF2fTSGUy0R-HNIh6NvspTmzXTIizQ-4vjM",
+      "value": 3,
+      "champion": "Urgot",
+      "role": "Top"
+    },
+    "top_assists": {
+      "player": "UukU5WTuqlWZt7PpqxGmIhgwxFQWCzrEv3MNlrmV1ysNzPc",
+      "value": 9,
+      "champion": "Taliyah",
+      "role": "Jungle"
+    },
+    "top_cs": {
+      "player": "EPGE6KE1aMp-gIylFWvllYX5dZq4OktvQan2imDF0KQdOfQ",
+      "value": 430,
+      "champion": "Zeri",
+      "role": "Adc"
+    },
+    "top_kda": {
+      "player": "6gSTGQwsRLL4406XAuJx1JH0cu7In7fdnuxzWEzAY8QEGGQ",
+      "value": 10.0,
+      "champion": "Lulu",
+      "role": "Supp"
+    },
+    "top_cs_per_min": {
+      "player": "EPGE6KE1aMp-gIylFWvllYX5dZq4OktvQan2imDF0KQdOfQ",
+      "value": 11.77,
+      "champion": "Zeri",
+      "role": "Adc"
+    },
+    "top_vision": {
+      "player": "6gSTGQwsRLL4406XAuJx1JH0cu7In7fdnuxzWEzAY8QEGGQ",
+      "value": 122,
+      "champion": "Lulu",
+      "role": "Supp"
+    },
+    "per_role": {
+      "Top": {
+        "most_played_champ": "Urgot",
+        "most_played_count": 1,
+        "most_played_champ_winrate": 100.0,
+        "least_played_champ": "Urgot",
+        "least_played_count": 1,
+        "top_kills": "00HPZ0hI_aiGMF2fTSGUy0R-HNIh6NvspTmzXTIizQ-4vjM",
+        "top_deaths": "00HPZ0hI_aiGMF2fTSGUy0R-HNIh6NvspTmzXTIizQ-4vjM",
+        "top_assists": "gr8jP-gXaIvkPNdp_fjnZcfkS9bx2GEy0nDtsLqHRra3F34",
+        "top_cs": "00HPZ0hI_aiGMF2fTSGUy0R-HNIh6NvspTmzXTIizQ-4vjM",
+        "top_kda": "gr8jP-gXaIvkPNdp_fjnZcfkS9bx2GEy0nDtsLqHRra3F34",
+        "top_cs_per_min": "00HPZ0hI_aiGMF2fTSGUy0R-HNIh6NvspTmzXTIizQ-4vjM",
+        "top_vision_per_min": "00HPZ0hI_aiGMF2fTSGUy0R-HNIh6NvspTmzXTIizQ-4vjM"
+      },
+      "Jungle": {
+        "most_played_champ": "Taliyah",
+        "most_played_count": 1,
+        "most_played_champ_winrate": 100.0,
+        "least_played_champ": "Taliyah",
+        "least_played_count": 1,
+        "top_kills": "QnqXNAUyuFytiJ1XnGCxiv-EXOyiXr39-NN-GWPalszq2t0",
+        "top_deaths": "QnqXNAUyuFytiJ1XnGCxiv-EXOyiXr39-NN-GWPalszq2t0",
+        "top_assists": "UukU5WTuqlWZt7PpqxGmIhgwxFQWCzrEv3MNlrmV1ysNzPc",
+        "top_cs": "UukU5WTuqlWZt7PpqxGmIhgwxFQWCzrEv3MNlrmV1ysNzPc",
+        "top_kda": "UukU5WTuqlWZt7PpqxGmIhgwxFQWCzrEv3MNlrmV1ysNzPc",
+        "top_cs_per_min": "UukU5WTuqlWZt7PpqxGmIhgwxFQWCzrEv3MNlrmV1ysNzPc",
+        "top_vision_per_min": "QnqXNAUyuFytiJ1XnGCxiv-EXOyiXr39-NN-GWPalszq2t0"
+      },
+      "Mid": {
+        "most_played_champ": "Ahri",
+        "most_played_count": 1,
+        "most_played_champ_winrate": 100.0,
+        "least_played_champ": "Ahri",
+        "least_played_count": 1,
+        "top_kills": "RXHCK8tMG3LYjIEaYgQBCUf_BAWyidmm6CXtckILaSGlp3M",
+        "top_deaths": "GKM-viWoJ_wAk0sDoREOUTQfihJZgNMQW6yRDtSr7dGU8rI",
+        "top_assists": "RXHCK8tMG3LYjIEaYgQBCUf_BAWyidmm6CXtckILaSGlp3M",
+        "top_cs": "RXHCK8tMG3LYjIEaYgQBCUf_BAWyidmm6CXtckILaSGlp3M",
+        "top_kda": "RXHCK8tMG3LYjIEaYgQBCUf_BAWyidmm6CXtckILaSGlp3M",
+        "top_cs_per_min": "RXHCK8tMG3LYjIEaYgQBCUf_BAWyidmm6CXtckILaSGlp3M",
+        "top_vision_per_min": "RXHCK8tMG3LYjIEaYgQBCUf_BAWyidmm6CXtckILaSGlp3M"
+      },
+      "Adc": {
+        "most_played_champ": "Aphelios",
+        "most_played_count": 1,
+        "most_played_champ_winrate": 100.0,
+        "least_played_champ": "Aphelios",
+        "least_played_count": 1,
+        "top_kills": "fN0KFTb67QYkwxQ5FJewzptImeg8WEl6omvx9WDLLrx0uns",
+        "top_deaths": "fN0KFTb67QYkwxQ5FJewzptImeg8WEl6omvx9WDLLrx0uns",
+        "top_assists": "EPGE6KE1aMp-gIylFWvllYX5dZq4OktvQan2imDF0KQdOfQ",
+        "top_cs": "EPGE6KE1aMp-gIylFWvllYX5dZq4OktvQan2imDF0KQdOfQ",
+        "top_kda": "EPGE6KE1aMp-gIylFWvllYX5dZq4OktvQan2imDF0KQdOfQ",
+        "top_cs_per_min": "EPGE6KE1aMp-gIylFWvllYX5dZq4OktvQan2imDF0KQdOfQ",
+        "top_vision_per_min": "EPGE6KE1aMp-gIylFWvllYX5dZq4OktvQan2imDF0KQdOfQ"
+      },
+      "Supp": {
+        "most_played_champ": "Braum",
+        "most_played_count": 1,
+        "most_played_champ_winrate": 100.0,
+        "least_played_champ": "Braum",
+        "least_played_count": 1,
+        "top_kills": "6gSTGQwsRLL4406XAuJx1JH0cu7In7fdnuxzWEzAY8QEGGQ",
+        "top_deaths": "bLkAhFiAywwBTV3QLfnvI7z_K6XOACaEO-xbNbhKGyWZs9c",
+        "top_assists": "bLkAhFiAywwBTV3QLfnvI7z_K6XOACaEO-xbNbhKGyWZs9c",
+        "top_cs": "bLkAhFiAywwBTV3QLfnvI7z_K6XOACaEO-xbNbhKGyWZs9c",
+        "top_kda": "6gSTGQwsRLL4406XAuJx1JH0cu7In7fdnuxzWEzAY8QEGGQ",
+        "top_cs_per_min": "bLkAhFiAywwBTV3QLfnvI7z_K6XOACaEO-xbNbhKGyWZs9c",
+        "top_vision_per_min": "6gSTGQwsRLL4406XAuJx1JH0cu7In7fdnuxzWEzAY8QEGGQ"
+      }
+    },
+    "champion_counts": {
+      "Urgot": 1,
+      "Taliyah": 1,
+      "Ahri": 1,
+      "Aphelios": 1,
+      "Braum": 1,
+      "KSante": 1,
+      "MonkeyKing": 1,
+      "Orianna": 1,
+      "Zeri": 1,
+      "Lulu": 1
+    },
+    "ban_counts": {
+      "412": 1,
+      "902": 1,
+      "18": 1,
+      "56": 1,
+      "59": 1,
+      "887": 1,
+      "60": 1,
+      "9": 1,
+      "106": 1,
+      "32": 1
+    }
+  }
+}

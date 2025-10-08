@@ -160,3 +160,167 @@ def normalize_elo(elo_raw: str) -> str:
     if 'bronze' in s:
         return 'Bronze'
     return elo_raw
+
+
+# --- DataDragon helpers -------------------------------------------------
+import json
+import requests
+from pathlib import Path
+
+_DD_CACHE_DIR = Path(__file__).parent.parent / 'data' / 'cache' / 'dd'
+_DD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+def _dd_cache_path(name: str) -> Path:
+    return _DD_CACHE_DIR / name
+
+def get_dd_latest_version(timeout: float = 5.0) -> str:
+    """Return the latest DataDragon version string, using cache when possible."""
+    ver_p = _dd_cache_path('version.txt')
+    if ver_p.exists():
+        try:
+            return ver_p.read_text(encoding='utf-8').strip()
+        except Exception:
+            pass
+    try:
+        r = requests.get('https://ddragon.leagueoflegends.com/api/versions.json', timeout=timeout)
+        r.raise_for_status()
+        versions = r.json()
+        if isinstance(versions, list) and versions:
+            latest = versions[0]
+            try:
+                ver_p.write_text(latest, encoding='utf-8')
+            except Exception:
+                pass
+            return latest
+    except Exception:
+        pass
+    return ''
+
+def load_champion_metadata(timeout: float = 5.0) -> dict:
+    """Load champion metadata (mapping id -> name and name -> image url).
+
+    Caches a local copy in data/cache/dd/champions.json to avoid repeated network calls.
+    """
+    cache_p = _dd_cache_path('champions.json')
+    if cache_p.exists():
+        try:
+            return json.loads(cache_p.read_text(encoding='utf-8'))
+        except Exception:
+            pass
+
+    version = get_dd_latest_version()
+    if not version:
+        return {}
+
+    url = f'https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json'
+    try:
+        r = requests.get(url, timeout=timeout)
+        r.raise_for_status()
+        data = r.json()
+        # store cache
+        try:
+            cache_p.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+        except Exception:
+            pass
+        return data
+    except Exception:
+        return {}
+
+def champ_id_to_name(champion_id: int) -> str:
+    """Map a numeric champion id to the human-readable champion name using DataDragon metadata."""
+    try:
+        data = load_champion_metadata()
+        if not data:
+            return ''
+        for cname, info in (data.get('data') or {}).items():
+            try:
+                if int(info.get('key')) == int(champion_id):
+                    return info.get('id')
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # Fallback: try to find the name in locally cached match files (no network needed)
+    try:
+        from pathlib import Path
+        cache_matches = Path(__file__).parent.parent / 'data' / 'cache' / 'matches'
+        if cache_matches.exists():
+            for p in cache_matches.glob('*.json'):
+                try:
+                    mj = json.loads(p.read_text(encoding='utf-8'))
+                    info = mj.get('info') or {}
+                    parts = info.get('participants') or []
+                    for part in parts:
+                        try:
+                            if int(part.get('championId', 0)) == int(champion_id):
+                                # championName may be present
+                                return part.get('championName') or part.get('champion') or ''
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # Fallback 2: try processed aggregated files which may include participant data
+    try:
+        from pathlib import Path
+        proc_dir = Path(__file__).parent.parent / 'data' / 'processed'
+        if proc_dir.exists():
+            for p in proc_dir.glob('*.json'):
+                try:
+                    data = json.loads(p.read_text(encoding='utf-8'))
+                    matches = data.get('matches') or []
+                    for m in matches:
+                        parts = m.get('participants') or []
+                        for part in parts:
+                            try:
+                                if int(part.get('championId', 0)) == int(champion_id):
+                                    return part.get('championName') or part.get('champion') or ''
+                            except Exception:
+                                continue
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    return ''
+
+def champ_name_to_icon_url(champion_name: str) -> str:
+    """Return a DataDragon CDN URL for the champion square icon for a champion name and cached version."""
+    if not champion_name:
+        return ''
+    # Normalize champion name for DataDragon file names (no spaces). Handle Wukong/MonkeyKing special-case.
+    name = str(champion_name).replace(' ', '')
+    if name == 'Wukong':
+        name = 'MonkeyKing'
+
+    # prefer latest cached version, otherwise fall back to a pinned version (works offline)
+    version = get_dd_latest_version()
+    if not version:
+        # fallback version chosen to be reasonably recent; update if needed
+        version = '15.11.1'
+
+    return f'https://ddragon.leagueoflegends.com/cdn/{version}/img/champion/{name}.png'
+
+def format_champion_display(champion_name: str) -> str:
+    """Return a human-friendly champion display name.
+
+    DataDragon uses 'MonkeyKing' for Wukong; present as 'Wukong'.
+    Also split CamelCase into spaced words for readability.
+    """
+    if not champion_name:
+        return ''
+    name = str(champion_name)
+    # fix DataDragon oddity
+    if name == 'MonkeyKing':
+        return 'Wukong'
+    # split CamelCase (e.g., KogMaw -> Kog Maw) but keep known exceptions compact
+    out = ''
+    prev = ''
+    for ch in name:
+        if prev and ch.isupper() and (prev.islower() or prev.isdigit()):
+            out += ' '
+        out += ch
+        prev = ch
+    return out
