@@ -6,7 +6,7 @@ from src.utils import parse_opgg_adversaires_csv, normalize_elo
 import os
 import time
 from dotenv import load_dotenv
-from src.match_stats import get_match, aggregate_matches, parse_match
+from src.match_stats import get_match, aggregate_matches, parse_match, get_summoner_by_puuid
 from src.utils import champ_id_to_name, champ_name_to_icon_url, load_champion_metadata, format_champion_display
 from pathlib import Path as _Path
 import altair as alt
@@ -106,50 +106,167 @@ files_for_edition = sorted([p for p in proc_dir.glob(f'match_stats_edition{editi
 def resolve_player_display(player_id: str) -> str:
     """Try to resolve a potentially opaque player id (puuid) into a summonerName
     by scanning processed files and cached matches. Returns the original value if not found."""
+    # robust resolver that checks multiple sources for puuid -> summonerName
     try:
         if not isinstance(player_id, str):
             return player_id
-        # quick sanity: if looks like a normal name, return as-is
-        if ' ' in player_id or len(player_id) < 20:
+
+        # If it looks like a human-readable name (contains space) return as-is
+        if ' ' in player_id:
             return player_id
-        # quick map lookup if available
+
+        # If the value is already an abbreviated display (contains ellipsis), try to
+        # match it against known puuid keys by prefix/suffix before giving up.
+        abbrev_prefix = abbrev_suffix = None
+        if '\u2026' in player_id or '...' in player_id:
+            # split on either unicode ellipsis or three dots
+            if '\u2026' in player_id:
+                parts = player_id.split('\u2026')
+            else:
+                parts = player_id.split('...')
+            if len(parts) == 2:
+                abbrev_prefix, abbrev_suffix = parts[0], parts[1]
+
+        # 1) module-level puuid_map (built from cached matches / processed files)
         try:
-            if 'puuid_map' in globals() and player_id in globals().get('puuid_map', {}):
-                return globals().get('puuid_map', {}).get(player_id)
+            if 'puuid_map' in globals() and isinstance(globals().get('puuid_map'), dict):
+                pm = globals().get('puuid_map')
+                # direct full-key match
+                if player_id in pm:
+                    return pm.get(player_id)
+                # if we have an abbreviation, try to match by prefix/suffix
+                if abbrev_prefix is not None and abbrev_suffix is not None:
+                    for k, v in pm.items():
+                        if k.startswith(abbrev_prefix) and k.endswith(abbrev_suffix):
+                            return v
         except Exception:
             pass
 
-        # search processed summaries first (recent files first)
+        # 2) check processed files for an explicit puuid_map (fast) or participant objects
         proc_dir = _Path(__file__).parent.parent / 'data' / 'processed'
         if proc_dir.exists():
             for p in sorted(proc_dir.glob('*.json'), key=lambda x: x.stat().st_mtime, reverse=True):
                 try:
                     d = json.loads(p.read_text(encoding='utf-8'))
-                    for m in d.get('matches', []) or []:
-                        for part in m.get('participants', []) or []:
-                            # processed files may use 'player' or 'player_name' or full participant objects
-                            if part.get('puuid') == player_id or part.get('player') == player_id:
-                                return part.get('summonerName') or part.get('player') or part.get('player_name') or player_id
-                            # also try matching by champion/player fields
                 except Exception:
                     continue
-        # then search raw cached full matches
+
+                # prefer an explicit puuid_map if present
+                try:
+                    pm = d.get('puuid_map') or {}
+                    if isinstance(pm, dict) and pm:
+                        if player_id in pm:
+                            return pm.get(player_id)
+                        if abbrev_prefix is not None and abbrev_suffix is not None:
+                            for k, v in pm.items():
+                                if k.startswith(abbrev_prefix) and k.endswith(abbrev_suffix):
+                                    return v
+                except Exception:
+                    pass
+
+                # fallback: iterate matches[] participants which may be dicts
+                try:
+                    for m in d.get('matches', []) or []:
+                        parts = m.get('participants') or []
+                        # if participants are dict-like
+                        if parts and isinstance(parts[0], dict):
+                            for part in parts:
+                                try:
+                                    if part.get('puuid') == player_id or part.get('player') == player_id:
+                                        return part.get('summonerName') or part.get('player') or part.get('player_name') or player_id
+                                except Exception:
+                                    continue
+                        else:
+                            # participants might be simple puuid strings; try to load cached full match by id
+                            mid = m.get('matchId') or m.get('gameId')
+                            if mid:
+                                cache_p = _Path(__file__).parent.parent / 'data' / 'cache' / 'matches' / f"{mid}.json"
+                                if cache_p.exists():
+                                    try:
+                                        full = json.loads(cache_p.read_text(encoding='utf-8'))
+                                        for fp in (full.get('info') or {}).get('participants', []):
+                                            if fp.get('puuid') == player_id:
+                                                    # prefer summonerName, then riotIdGameName, then summonerId
+                                                    name = fp.get('summonerName') or fp.get('riotIdGameName') or fp.get('summonerId')
+                                                    if isinstance(name, str):
+                                                        name = name.strip()
+                                                    if name:
+                                                        return name
+                                                    return player_id
+                                    except Exception:
+                                        continue
+                except Exception:
+                    pass
+
+        # 3) search raw cached full matches directly
         cache_dir = _Path(__file__).parent.parent / 'data' / 'cache' / 'matches'
         if cache_dir.exists():
             for f in cache_dir.glob('*.json'):
                 try:
                     mj = json.loads(f.read_text(encoding='utf-8'))
                     for p in (mj.get('info') or {}).get('participants', []):
-                        if p.get('puuid') == player_id:
-                            return p.get('summonerName') or player_id
+                            pu = p.get('puuid')
+                            if not pu:
+                                continue
+                            matched = False
+                            # exact match
+                            if pu == player_id:
+                                matched = True
+                            # abbreviated match: prefixsuffix
+                            elif abbrev_prefix is not None and abbrev_suffix is not None:
+                                try:
+                                    if pu.startswith(abbrev_prefix) and pu.endswith(abbrev_suffix):
+                                        matched = True
+                                except Exception:
+                                    matched = False
+
+                            if not matched:
+                                continue
+
+                            # prefer summonerName then riotIdGameName then summonerId
+                            name = p.get('summonerName') or p.get('riotIdGameName') or p.get('summonerId')
+                            if isinstance(name, str):
+                                name = name.strip()
+                            if name:
+                                return name
+
+                            # as a last resort, if we have the Riot API key, try to fetch by full puuid and cache
+                            try:
+                                _api_key = os.environ.get('OCCILAN_RIOT_API_KEY')
+                                _region = os.environ.get('OCCILAN_RIOT_API_REGION', 'euw')
+                                if _api_key:
+                                    res = get_summoner_by_puuid(pu, api_key=_api_key, region=_region, use_cache=True)
+                                    if res and isinstance(res, dict):
+                                        disp = res.get('displayName') or (res.get('raw') or {}).get('name')
+                                        if disp:
+                                            return disp
+                            except Exception:
+                                pass
+                            # if nothing, return the abbreviated input
+                            return player_id
                 except Exception:
                     continue
     except Exception:
         pass
-    # If we couldn't resolve and it looks like a puuid, abbreviate it so UI doesn't show long opaque ids
+
+    # If we couldn't resolve, try to abbreviate if it looks long/opaque (keep original short names intact)
     try:
         if isinstance(player_id, str) and len(player_id) >= 20 and ' ' not in player_id:
-            return f"{player_id[:6]}…{player_id[-4:]}"
+            # As last resort, if we have a Riot API key, try to resolve the puuid via API (and cache)
+            try:
+                _api_key = os.environ.get('OCCILAN_RIOT_API_KEY')
+                _region = os.environ.get('OCCILAN_RIOT_API_REGION', 'euw')
+                if _api_key:
+                    res = get_summoner_by_puuid(player_id, api_key=_api_key, region=_region, use_cache=True)
+                    if res and isinstance(res, dict):
+                        # prefer displayName then raw.name
+                        disp = res.get('displayName') or (res.get('raw') or {}).get('name') or (res.get('raw') or {}).get('summonerName')
+                        if disp:
+                            return disp
+            except Exception:
+                pass
+            # keep the short display used elsewhere
+            return f"{player_id[:6]}\u2026{player_id[-4:]}"
     except Exception:
         pass
     return player_id
@@ -276,9 +393,14 @@ def _auto_process_matches_if_requested(ids, edition, api_key, region='euw'):
             info = (m.get('info') or {})
             for p in info.get('participants', []):
                 pu = p.get('puuid')
-                name = p.get('summonerName')
+                # prefer Riot's 'summonerName', but fall back to riotIdGameName or summonerId when empty
+                name = p.get('summonerName') or p.get('riotIdGameName') or p.get('summonerId')
+                if isinstance(name, str):
+                    name = name.strip()
                 if pu and name:
-                    puuid_map_local[pu] = name
+                    # avoid empty strings
+                    if name:
+                        puuid_map_local[pu] = name
         ts = int(time.time())
         out = proc_dir / f'match_stats_edition{edition}_{ts}.json'
         payload = {'matches': [m.get('metadata', {}) for m in cached], 'agg': agg, 'puuid_map': puuid_map_local}
@@ -327,9 +449,12 @@ try:
         info = (m.get('info') or {})
         for p in info.get('participants', []):
             pu = p.get('puuid')
-            name = p.get('summonerName')
+            name = p.get('summonerName') or p.get('riotIdGameName') or p.get('summonerId')
+            if isinstance(name, str):
+                name = name.strip()
             if pu and name:
-                puuid_map[pu] = name
+                if name:
+                    puuid_map[pu] = name
     # also scan processed files for matchId -> cached match mapping
     proc_dir = _Path(__file__).parent.parent / 'data' / 'processed'
     if proc_dir.exists():
@@ -341,11 +466,14 @@ try:
                     parts = mm.get('participants') or []
                     if parts and isinstance(parts[0], dict):
                         for part in parts:
-                            pu = part.get('puuid') or part.get('player')
-                            # prefer explicit summonerName, then player, then player_name
-                            name = part.get('summonerName') or part.get('player') or part.get('player_name')
-                            if pu and name:
-                                puuid_map[pu] = name
+                                for part in parts:
+                                    pu = part.get('puuid') or part.get('player')
+                                    # prefer explicit summonerName, then riotIdGameName, then player/player_name/summonerId
+                                    name = part.get('summonerName') or part.get('riotIdGameName') or part.get('player') or part.get('player_name') or part.get('summonerId')
+                                    if isinstance(name, str):
+                                        name = name.strip()
+                                    if pu and name:
+                                        puuid_map[pu] = name
                     else:
                         # if participants are puuid strings, try loading cached match by id
                         mid = mm.get('matchId') or mm.get('gameId')

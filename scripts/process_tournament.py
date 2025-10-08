@@ -22,7 +22,7 @@ if env_path.exists():
 
 import sys
 sys.path.insert(0, str(ROOT))
-from src.match_stats import get_match, aggregate_matches
+from src.match_stats import get_match, aggregate_matches, get_summoner_by_puuid
 
 OUT_DIR = ROOT / 'data' / 'processed'
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -75,9 +75,73 @@ def main():
         info = (m.get('info') or {})
         for p in info.get('participants', []):
             pu = p.get('puuid')
-            name = p.get('summonerName')
+            # prefer Riot's summonerName, but fall back to riotIdGameName or summonerId if empty
+            name = p.get('summonerName') or p.get('riotIdGameName') or p.get('summonerId')
+            if isinstance(name, str):
+                name = name.strip()
             if pu and name:
                 puuid_map[pu] = name
+
+    # Backfill: ensure any PUUID-like strings referenced in agg are present in puuid_map.
+    # Helper: naive PUUID detector (length and allowed chars)
+    def looks_like_puuid(s: str) -> bool:
+        if not isinstance(s, str):
+            return False
+        if ' ' in s:
+            return False
+        # typical puuids are long (~50+), contain - and _ and alnum
+        return len(s) >= 20 and all(c.isalnum() or c in ('-', '_') for c in s)
+
+    # collect candidate puuids from agg recursively
+    def collect_strings(obj):
+        res = set()
+        if isinstance(obj, dict):
+            for v in obj.values():
+                res |= collect_strings(v)
+        elif isinstance(obj, list):
+            for it in obj:
+                res |= collect_strings(it)
+        elif isinstance(obj, str):
+            res.add(obj)
+        return res
+
+    candidates = collect_strings(agg)
+    # try to resolve any candidate that looks like a puuid and is missing
+    cache_dir = ROOT / 'data' / 'cache' / 'matches'
+    for cand in candidates:
+        if not looks_like_puuid(cand):
+            continue
+        if cand in puuid_map:
+            continue
+        resolved = None
+        # search in cached matches' participants
+        for m in matches:
+            info = (m.get('info') or {})
+            for p in info.get('participants', []):
+                if p.get('puuid') == cand:
+                    resolved = p.get('summonerName') or p.get('riotIdGameName') or p.get('summonerId')
+                    if isinstance(resolved, str):
+                        resolved = resolved.strip()
+                    break
+            if resolved:
+                break
+        # fallback to Summoner-V4 if API key present
+        if not resolved:
+            api_key = __import__('os').environ.get('OCCILAN_RIOT_API_KEY')
+            region = __import__('os').environ.get('OCCILAN_RIOT_API_REGION', 'euw')
+            if api_key:
+                try:
+                    info = get_summoner_by_puuid(cand, api_key=api_key, region=region, use_cache=True)
+                    if info and isinstance(info, dict):
+                        resolved = info.get('displayName') or (info.get('raw') or {}).get('name') or (info.get('raw') or {}).get('summonerName')
+                except Exception:
+                    resolved = None
+
+        # final fallback: anonymized label to avoid storing the raw puuid as display
+        if not resolved:
+            resolved = f"player_{cand[:6]}"
+
+        puuid_map[cand] = resolved
 
     ts = int(time.time())
     out = OUT_DIR / f'match_stats_edition{args.edition}_{ts}.json'

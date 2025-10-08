@@ -16,6 +16,13 @@ REGION_ROUTING = {
     'jp': 'asia',
 }
 
+# platform routing used for Summoner-V4 (platform endpoints)
+PLATFORM_ROUTING = {
+    'euw': 'euw1', 'euw1': 'euw1', 'eune': 'eun1', 'eun1': 'eun1',
+    'na': 'na1', 'na1': 'na1', 'kr': 'kr', 'jp': 'jp1', 'jp1': 'jp1',
+    'br': 'br1', 'lan': 'la1', 'las': 'la2', 'oc': 'oc1', 'tr': 'tr1', 'ru': 'ru'
+}
+
 CACHE_DIR = Path('data') / 'cache' / 'matches'
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -61,6 +68,57 @@ def get_match(match_id: str, api_key: str, region: str = 'euw', use_cache: bool 
     return data
 
 
+def get_summoner_by_puuid(puuid: str, api_key: str, region: str = 'euw', use_cache: bool = True) -> Dict[str, Any]:
+    """Lookup summoner info by puuid via Summoner-V4, with a local cache in data/cache/puuid_map.json.
+
+    Returns the summoner JSON (as dict) or None on failure. Caches results to avoid repeated API calls.
+    """
+    if not puuid or not api_key:
+        return None
+
+    cache_dir = Path('data') / 'cache'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / 'puuid_map.json'
+
+    # load cache
+    try:
+        if cache_file.exists():
+            cache = json.loads(cache_file.read_text(encoding='utf-8'))
+        else:
+            cache = {}
+    except Exception:
+        cache = {}
+
+    if use_cache and puuid in cache:
+        return cache.get(puuid)
+
+    # Summoner-V4 uses platform endpoints (e.g. euw1.api.riotgames.com)
+    platform = PLATFORM_ROUTING.get(region.lower(), region.lower())
+    base = f'https://{platform}.api.riotgames.com'
+    url = f"{base}/lol/summoner/v4/summoners/by-puuid/{puuid}"
+    headers = {'X-Riot-Token': api_key}
+    try:
+        r = requests.get(url, headers=headers, timeout=8)
+        r.raise_for_status()
+        data = r.json()
+        # store minimal display name
+        name = data.get('name') or data.get('summonerName') or data.get('riotIdGameName') or data.get('id')
+        # persist into cache as a small dict with name + raw response as fallback
+        cache[puuid] = {'displayName': name, 'raw': data}
+        try:
+            cache_file.write_text(json.dumps(cache, ensure_ascii=False), encoding='utf-8')
+        except Exception:
+            pass
+        return cache.get(puuid)
+    except Exception as e:
+        # minimal error output for debugging
+        try:
+            print(f"get_summoner_by_puuid failed for {puuid} @ {url}: {e}")
+        except Exception:
+            pass
+        return None
+
+
 def _normalize_role(teamPosition: str, lane: str = '') -> str:
     """Normalize Riot teamPosition/lane to Top/Jungle/Mid/Adc/Supp.
     teamPosition values: TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY (sometimes empty)
@@ -96,7 +154,14 @@ def parse_match(match_json: dict) -> Dict[str, Any]:
     game_duration = info.get('gameDuration', 0)
     participants = []
     for p in info.get('participants', []):
-        summ = p.get('summonerName') or p.get('summonerId') or p.get('puuid')
+        # prefer Riot's visible name fields for display: riotIdGameName (Riot ID) then summonerName
+        # fall back to summonerId if both display fields are empty. Do NOT fall back to puuid
+        # because we must avoid leaking PUUIDs into display fields/aggregates.
+        raw_name = p.get('riotIdGameName') or p.get('summonerName') or p.get('summonerId')
+        if isinstance(raw_name, str):
+            summ = raw_name.strip() or None
+        else:
+            summ = raw_name
         champ = p.get('championName')
         kills = p.get('kills', 0)
         deaths = p.get('deaths', 0)
