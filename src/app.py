@@ -607,7 +607,7 @@ if df is not None:
                             st.metric('Champion le plus banni', f"{format_champion_display(mb_name)} ({agg.get('most_banned_count', 0)})")
 
                 # Top players table (display player summonerName when possible)
-                with st.expander('Tops par statistiques', expanded=False):
+                with st.expander('Tops par statistiques', expanded=True):
                     st.markdown('### Tops par statistiques')
                     tops = []
                     for key in ['top_kills','top_cs_per_min','top_deaths','top_kda','top_vision']:
@@ -624,7 +624,7 @@ if df is not None:
                         st.dataframe(df_tops)
 
                 # Per-role breakdown
-                with st.expander('Par rôle', expanded=False):
+                with st.expander('Par rôle', expanded=True):
                     st.markdown('### Par rôle')
                     per_role = agg.get('per_role', {})
                     if per_role:
@@ -683,7 +683,7 @@ if df is not None:
                         st.warning('Impossible d’afficher les graphiques résumé: ' + str(e))
 
                 # Detailed distribution (moved to bottom): show full Distribution with winrate labels
-                with st.expander('Distribution : Champions joués & bannis (détaillé)', expanded=False):
+                with st.expander('Distribution : Champions joués & bannis (détaillé)', expanded=True):
                     try:
                         st.markdown('## Champions joués')
                         # reconstruct counts for champions from agg if present, otherwise from matches list
@@ -790,5 +790,62 @@ if df is not None:
                         st.warning('Impossible d’afficher la distribution détaillée: ' + str(e))
             except Exception as e:
                 st.error('Impossible de lire le fichier traité: ' + str(e))
-            # Place the raw JSON download button at the very end of the "Stats Tournoi" section (visible)
-            st.download_button('Télécharger JSON tournoi (brut)', latest.read_bytes(), file_name=latest.name, mime='application/json')
+            # (download button will be placed below the full champion table)
+
+            # Rebuild and render the full champion table (the detailed rows table) here, between the download button and the distribution
+            try:
+                champ_rows = []
+                if cached_matches:
+                    per_champ = {}
+                    for mj in cached_matches:
+                        parsed = parse_match(mj)
+                        team_kills = {}
+                        for p in parsed.get('participants', []):
+                            team_kills[p.get('teamId')] = team_kills.get(p.get('teamId'), 0) + (p.get('kills') or 0)
+                        for p in parsed.get('participants', []):
+                            cname = p.get('championName') or p.get('champion')
+                            if not cname:
+                                continue
+                            if cname not in per_champ:
+                                per_champ[cname] = {'games':0,'wins':0,'kda_sum':0.0,'kp_sum':0.0}
+                            per_champ[cname]['games'] += 1
+                            if p.get('win'):
+                                per_champ[cname]['wins'] += 1
+                            per_champ[cname]['kda_sum'] += (p.get('kda') or 0.0)
+                            tk = team_kills.get(p.get('teamId'), 0)
+                            kp = 0.0
+                            if tk > 0:
+                                kp = ( (p.get('kills') or 0) + (p.get('assists') or 0) ) / tk * 100.0
+                            per_champ[cname]['kp_sum'] += kp
+                    for cname, info in per_champ.items():
+                        games = info['games']
+                        winrate = round(info['wins']/games*100.0,1) if games else 0.0
+                        avg_kda = round(info['kda_sum']/games,2) if games else 0.0
+                        avg_kp = round(info['kp_sum']/games,1) if games else 0.0
+                        champ_rows.append({'champion': cname, 'games': games, 'winrate': winrate, 'kda': avg_kda, 'kp': avg_kp})
+                    champ_rows = sorted(champ_rows, key=lambda x: x['games'], reverse=True)
+
+                if champ_rows:
+                    st.markdown('### Tableau complet — Champions (détails)')
+                    html = '<div style="background:#0f1113;padding:10px;border-radius:8px;color:#dfe6ee">'
+                    html += '<table style="width:100%;border-collapse:collapse;font-family:Inter,Helvetica,Arial;">'
+                    html += '<thead><tr style="text-align:left;color:#9fb0c6"><th>Champion</th><th>Games</th><th>WR</th><th>KDA</th><th>KP</th></tr></thead><tbody>'
+                    for r in champ_rows:
+                        disp = format_champion_display(r['champion'])
+                        icon = champ_name_to_icon_url(r['champion'])
+                        icon_html = f'<img src="{icon}" width="28" height="28" style="vertical-align:middle;border-radius:4px;margin-right:8px">' if icon else ''
+                        html += f'<tr style="border-top:1px solid #1e2933;padding:6px">'
+                        html += f'<td style="padding:8px">{icon_html}<span style="vertical-align:middle">{disp}</span></td>'
+                        html += f'<td style="padding:8px">{r['games']}</td>'
+                        wr_color = '#4CAF50' if r['winrate']>=50 else '#F44336'
+                        html += f'<td style="padding:8px;color:{wr_color}">{r['winrate']}%</td>'
+                        html += f'<td style="padding:8px;color:#8e44ad">{r['kda']}</td>'
+                        kp_color = '#4CAF50' if r['kp']>=50 else '#F44336'
+                        html += f'<td style="padding:8px;color:{kp_color}">{r['kp']}%</td>'
+                        html += '</tr>'
+                    html += '</tbody></table></div>'
+                    st.markdown(html, unsafe_allow_html=True)
+                    # Download button placed immediately after the full champion table
+                    st.download_button('Télécharger JSON tournoi (brut)', latest.read_bytes(), file_name=latest.name, mime='application/json')
+            except Exception:
+                pass
