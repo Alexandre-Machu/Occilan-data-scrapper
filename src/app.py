@@ -960,19 +960,38 @@ if df is not None:
                 return None
 
             def avg_label_from_score(avg):
+                """Map an average numeric score back to a coarse elo label.
+
+                Use floor-based mapping for tiers below Master so that fractional
+                averages don't round up into non-existent buckets (which previously
+                produced empty labels). Master and Grandmaster are handled by
+                threshold checks.
+                """
                 if avg is None:
                     return ''
                 try:
                     v = float(avg)
                 except Exception:
                     return ''
+                # Grandmaster / Master thresholds
                 if v >= MASTER_BASE + GM_OFFSET:
                     return 'Grandmaster'
                 if v >= MASTER_BASE:
                     return 'Master'
-                # revert to integer bucket for lower tiers
+
+                # revert to integer bucket for lower tiers, using floor to avoid
+                # rounding up fractional averages into the next (missing) bucket
+                import math
                 mapping_rev = {v: k for k, v in base_map.items()}
-                key = int(round(v))
+                key = int(math.floor(v)) if v >= 0 else int(v)
+                # clamp key to available mapping range
+                if key not in mapping_rev:
+                    # if key exceeds known buckets, pick the nearest lower known bucket
+                    keys = sorted(mapping_rev.keys())
+                    for kk in reversed(keys):
+                        if key >= kk:
+                            return mapping_rev.get(kk, '')
+                    return ''
                 return mapping_rev.get(key, '')
 
             # group by team and compute average elo score
