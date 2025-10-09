@@ -1236,6 +1236,20 @@ if df is not None:
                 st.markdown(table_html, unsafe_allow_html=True)
                 # Skip processed-match history in Excel mode to remain fully offline
                 st.stop()
+        else:
+            # Helpful diagnostics on cloud when the Excel stats JSON isn't included in the deploy bundle
+            st.warning(
+                f"Fichier introuvable: {excel_json_path.name}. Sur le cloud, ajoute ce fichier dans le dépôt (data/processed/) ou régénère-le localement.")
+            try:
+                proc_dir_list = list((_Path(__file__).parent.parent / 'data' / 'processed').glob('*.json'))
+                if proc_dir_list:
+                    names = sorted([p.name for p in proc_dir_list])
+                    st.caption('Fichiers présents dans data/processed:')
+                    st.code('\n'.join(names))
+                else:
+                    st.caption('Aucun JSON présent dans data/processed sur cette instance.')
+            except Exception:
+                pass
 
     # Helper: load teams from processed players CSV (edition-specific) or fallback to teams in df
         def load_teams_for_edition(ed):
