@@ -1,0 +1,7 @@
+This folder collects candidates for removal:
+- scripts not required at runtime
+- backup files
+- compiled caches
+- unused components
+
+We'll only delete after confirming.

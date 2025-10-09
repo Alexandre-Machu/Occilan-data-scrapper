@@ -1118,44 +1118,122 @@ if df is not None:
                 team_names = sorted(list(teams_map.keys()))
                 sel_team = st.selectbox('Choisir une équipe', team_names, key='excel_detailed_team')
 
-                # KPIs d'équipe depuis Excel (affiche toutes les stats disponibles)
-                st.markdown('### KPIs équipe (Excel)')
+                # KPIs d'équipe (joli rendu avec émojis + couleurs)
+                st.markdown('### Stats équipe 📊')
                 tstats = (payload.get('team_stats') or {}).get(sel_team, {})
-                # 1ère rangée
-                cols_top = st.columns(4)
-                cols_top[0].metric('Matches joués', tstats.get('matches', '—'))
-                cols_top[1].metric('Victoires', tstats.get('wins', '—'))
-                cols_top[2].metric('Défaites', tstats.get('losses', '—'))
-                cols_top[3].metric('Winrate', tstats.get('winrate', '—'))
-                # 2ème rangée (durées)
-                cols_bot = st.columns(3)
-                cols_bot[0].metric('Durée moyenne', tstats.get('avg_duration', '—'))
-                cols_bot[1].metric('Plus court', tstats.get('min_duration', '—'))
-                cols_bot[2].metric('Plus long', tstats.get('max_duration', '—'))
 
-                # Joueurs (offline Excel) — pas de sélecteur joueur pour l'instant
-                st.markdown('### Joueurs (Excel)')
-                players = teams_map.get(sel_team, [])
-                # Tableau complet joueurs
+                _kpi_css = """
+                <style>
+                .kpi-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+                .kpi-grid.two { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+                .kpi-card { background: linear-gradient(180deg, #0f1116 0%, #0b0d10 100%); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:14px; }
+                .kpi-title { color:#9fb0c6; font-size:13px; margin-bottom:4px; }
+                .kpi-value { color:#e6eef6; font-size:26px; font-weight:800; letter-spacing:0.2px; }
+                .kpi-emoji { margin-right:6px; }
+                </style>
+                """
                 try:
-                    import pandas as _pd
-                    rows = []
-                    for p in players:
-                        s = p.get('stats') or {}
-                        rows.append({
-                            'Position': p.get('position') or '',
-                            'Joueur': p.get('riot_name') or '',
-                            'KDA': s.get('KDA', ''),
-                            'Kills/G': s.get('Kills/G', ''),
-                            'Deaths/G': s.get('Deaths/G', ''),
-                            'Assists/G': s.get('Assists/G', ''),
-                            'CS/min': s.get('CS/min', ''),
-                            'Vision/G': s.get('Vision/G', ''),
-                            'Champions': s.get('Champions', ''),
-                        })
-                    st.dataframe(_pd.DataFrame(rows), use_container_width=True)
+                    st.markdown(_kpi_css, unsafe_allow_html=True)
                 except Exception:
                     pass
+
+                def _kpi(title, value, emoji):
+                    return f'<div class="kpi-card"><div class="kpi-title"><span class="kpi-emoji">{emoji}</span>{title}</div><div class="kpi-value">{value}</div></div>'
+
+                top_html = '<div class="kpi-grid">' \
+                    + _kpi('Matches joués', tstats.get('matches', '—'), '🎮') \
+                    + _kpi('Victoires', tstats.get('wins', '—'), '🏆') \
+                    + _kpi('Défaites', tstats.get('losses', '—'), '❌') \
+                    + _kpi('Winrate', tstats.get('winrate', '—'), '🔥') \
+                    + '</div>'
+                st.markdown(top_html, unsafe_allow_html=True)
+
+                bot_html = '<div class="kpi-grid two">' \
+                    + _kpi('Durée moyenne', tstats.get('avg_duration', '—'), '⏱️') \
+                    + _kpi('Plus court', tstats.get('min_duration', '—'), '⚡') \
+                    + _kpi('Plus long', tstats.get('max_duration', '—'), '🕒') \
+                    + '</div>'
+                st.markdown(bot_html, unsafe_allow_html=True)
+
+                # Joueurs (offline Excel) — rendu custom avec icônes champions
+                st.markdown('### Stats joueurs 🧑‍🤝‍🧑')
+                players = teams_map.get(sel_team, [])
+
+                role_badges = {
+                    'Top':   {'label': '🗻 Top',   'bg': '#ff6b6b'},
+                    'Jungle':{'label': '🐾 Jungle','bg': '#2ecc71'},
+                    'Mid':   {'label': '🎯 Mid',   'bg': '#f39c12'},
+                    'Adc':   {'label': '🏹 ADC',   'bg': '#f1c40f'},
+                    'Supp':  {'label': '🛡️ Supp', 'bg': '#3498db'},
+                }
+
+                def _kda_color(v):
+                    try:
+                        fv = float(v)
+                    except Exception:
+                        return '#dfe6ee'
+                    if fv >= 5: return '#2ecc71'
+                    if fv >= 3: return '#a3e635'
+                    if fv >= 2: return '#facc15'
+                    return '#ef4444'
+
+                # Build custom HTML table
+                table_html = '<div style="margin-top:6px">'
+                table_html += '<table style="width:100%;border-collapse:collapse;font-family:Inter,Helvetica,Arial;">'
+                table_html += '<thead><tr style="background:#0b1220;color:#9fb0c6">'
+                headers = ['Position','Joueur','KDA','Kills/G','Deaths/G','Assists/G','CS/min','Vision/G','Champions']
+                for h in headers:
+                    table_html += f'<th style="padding:10px;text-align:left">{h}</th>'
+                table_html += '</tr></thead><tbody>'
+
+                for i, p in enumerate(players):
+                    s = p.get('stats') or {}
+                    bg = '#0f1113' if (i % 2 == 0) else '#0b0d10'
+                    table_html += f'<tr style="background:{bg};border-top:1px solid rgba(255,255,255,0.05)">'
+
+                    # Position badge
+                    pos = (p.get('position') or '').strip()
+                    badge = role_badges.get(pos, {'label': pos, 'bg':'#374151'})
+                    table_html += f'<td style="padding:10px"><span style="display:inline-block;background:{badge['bg']};color:#071019;font-weight:700;padding:6px 10px;border-radius:999px">{badge['label']}</span></td>'
+
+                    # Joueur
+                    jname = (p.get('riot_name') or '').strip()
+                    table_html += f'<td style="padding:10px;color:#e6eef6;font-weight:600">{jname}</td>'
+
+                    # KDA (+color) — format with max 1 decimal
+                    kda_raw = s.get('KDA','')
+                    kda_disp = kda_raw
+                    kda_for_color = kda_raw
+                    try:
+                        _num = float(str(kda_raw).replace(',', '.'))
+                        kda_disp = f"{_num:.1f}"
+                        kda_for_color = _num
+                    except Exception:
+                        pass
+                    kda_col = _kda_color(kda_for_color)
+                    table_html += f'<td style="padding:10px;color:{kda_col};font-weight:700">{kda_disp}</td>'
+
+                    # Simple numeric cells
+                    for key in ['Kills/G','Deaths/G','Assists/G','CS/min','Vision/G']:
+                        table_html += f'<td style="padding:10px">{s.get(key, '')}</td>'
+
+                    # Champions -> icons row
+                    champs_raw = s.get('Champions', '') or ''
+                    icons_html = ''
+                    if isinstance(champs_raw, str) and champs_raw.strip():
+                        for cname in [c.strip() for c in champs_raw.split(',') if c.strip()][:8]:
+                            try:
+                                url = champ_name_to_icon_url(cname)
+                                disp = format_champion_display(cname)
+                                icons_html += f'<img src="{url}" alt="{disp}" title="{disp}" width="26" height="26" style="border-radius:4px;margin-right:6px;vertical-align:middle">'
+                            except Exception:
+                                icons_html += f'<span style="display:inline-block;background:#111827;color:#e5e7eb;padding:4px 6px;border-radius:6px;margin-right:6px">{cname}</span>'
+                    table_html += f'<td style="padding:10px">{icons_html}</td>'
+
+                    table_html += '</tr>'
+
+                table_html += '</tbody></table></div>'
+                st.markdown(table_html, unsafe_allow_html=True)
                 # Skip processed-match history in Excel mode to remain fully offline
                 st.stop()
 
