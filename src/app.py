@@ -651,6 +651,92 @@ if df is not None:
         # pivot table Elo x Role
         roles = ['Top', 'Jungle', 'Mid', 'Adc', 'Supp']
         elo_order = ['Grandmaster', 'Master', 'Diamond', 'Emeraude', 'Platine', 'Gold', 'Silver', 'Bronze', 'Iron']
+
+        # Normalize role strings to a canonical set so 'Support' variants map to 'Supp'
+        def _normalize_role(r):
+            """Normalize role strings to canonical values.
+
+            Handle noisy inputs exported from the OPGG CSV where extra columns
+            may have been concatenated into the role cell (e.g. "Supp,,Bronze,2").
+            Strategy:
+            - If the value contains comma/semicolon/space separators, split into
+              tokens and pick the first token that looks like a role.
+            - Otherwise clean non-alphanumerics and map common variants.
+            """
+            try:
+                if not isinstance(r, str):
+                    return r
+                s = r.strip()
+            except Exception:
+                return r
+
+            # split on common separators and try to pick the token that matches a role
+            tokens = re.split(r'[\,;\|/\s]+', s)
+            tokens = [t for t in tokens if t]
+            candidate = None
+            for t in tokens:
+                tl = t.lower()
+                # direct match for known short tokens
+                if tl in ('support', 'supp', 'sup', 's', 'top', 'toplane', 'jungle', 'jg', 'mid', 'middle', 'adc', 'bot', 'bottom', 'carry'):
+                    candidate = tl
+                    break
+                # sometimes token may include punctuation; remove non-alpha for check
+                tc = re.sub(r'[^a-z]', '', tl)
+                if tc in ('support', 'supp', 'sup', 's', 'top', 'toplane', 'jungle', 'jg', 'mid', 'middle', 'adc', 'bot', 'bottom', 'carry'):
+                    candidate = tc
+                    break
+
+            # If we still didn't find a clean candidate, check the whole cleaned
+            # alpha-numeric string for role substrings (handles 'Supp,,Bronze,2').
+            if candidate is None:
+                try:
+                    cleaned = re.sub(r'[^a-z0-9]', '', s.lower())
+                except Exception:
+                    cleaned = ''.join(ch for ch in s.lower() if ch.isalnum())
+                # quick substring checks
+                if 'supp' in cleaned:
+                    candidate = 'supp'
+                elif 'top' in cleaned and 'toplane' not in cleaned:
+                    candidate = 'top'
+                elif 'toplane' in cleaned:
+                    candidate = 'toplane'
+                elif 'jungle' in cleaned or 'jg' in cleaned:
+                    candidate = 'jungle'
+                elif 'middle' in cleaned or 'mid' in cleaned:
+                    candidate = 'mid'
+                elif 'adc' in cleaned or 'bot' in cleaned or 'bottom' in cleaned or 'carry' in cleaned:
+                    candidate = 'adc'
+                else:
+                    candidate = cleaned
+
+            # Map canonical roles
+            if candidate in ('support', 'supp', 'sup', 's'):
+                return 'Supp'
+            if candidate in ('top', 'toplane'):
+                return 'Top'
+            if candidate in ('jungle', 'jg'):
+                return 'Jungle'
+            if candidate in ('mid', 'middle'):
+                return 'Mid'
+            if candidate in ('adc', 'bot', 'bottom', 'carry'):
+                return 'Adc'
+
+            # fallback: capitalize
+            try:
+                return candidate.capitalize() if isinstance(candidate, str) and candidate else r
+            except Exception:
+                return r
+
+        # Quick heuristic: if the raw role cell contains the substring 'supp'
+        # (case-insensitive), force it to the canonical 'Supp' to handle messy
+        # CSV exports like 'Supp,,Bronze,2' that can confuse tokenization.
+        try:
+            df['role'] = df['role'].apply(lambda r: 'Supp' if isinstance(r, str) and 'supp' in r.lower() else r)
+        except Exception:
+            pass
+
+        df['role'] = df['role'].apply(_normalize_role)
+
         pivot = df.pivot_table(index='elo_norm', columns='role', values='summoner_raw', aggfunc='count', fill_value=0)
         # ensure all roles present
         for r in roles:
