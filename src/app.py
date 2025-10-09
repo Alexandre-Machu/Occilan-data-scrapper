@@ -1187,7 +1187,36 @@ if df is not None:
                         # sanitize player-like columns
                         if 'player' in df_tops.columns:
                             df_tops['player'] = df_tops['player'].apply(lambda v: resolve_player_display(v))
-                        st.dataframe(df_tops)
+                        # Nice HTML rendering
+                        try:
+                            cols = list(df_tops.columns)
+                            html = '<div style="padding:10px;border-radius:8px;background:transparent">'
+                            html += '<table style="border-collapse:collapse;width:100%;font-family:Inter,Helvetica,Arial;color:#dfe6ee">'
+                            # header
+                            html += '<thead><tr style="background:#0b1220;color:#9fb0c6">'
+                            for c in cols:
+                                hdr = c.replace('_', ' ').title()
+                                html += f'<th style="padding:10px;text-align:left">{hdr}</th>'
+                            html += '</tr></thead><tbody>'
+                            for i, row in df_tops.iterrows():
+                                bg = '#0f1113' if i % 2 == 0 else '#0b0d10'
+                                html += f'<tr style="background:{bg};border-top:1px solid rgba(255,255,255,0.02)">'
+                                for c in cols:
+                                    v = row.get(c, '')
+                                    # champion: display name nicely
+                                    if c == 'champion' and v:
+                                        try:
+                                            vdisp = format_champion_display(v)
+                                        except Exception:
+                                            vdisp = str(v)
+                                    else:
+                                        vdisp = resolve_player_display(v) if c in ('player', 'role') else (str(v) if v is not None else '')
+                                    html += f'<td style="padding:10px;vertical-align:middle">{vdisp}</td>'
+                                html += '</tr>'
+                            html += '</tbody></table></div>'
+                            st.markdown(html, unsafe_allow_html=True)
+                        except Exception:
+                            st.dataframe(df_tops)
 
                 # Per-role breakdown
                 with st.expander('Par rôle', expanded=True):
@@ -1204,13 +1233,41 @@ if df is not None:
                                          'top_deaths': resolve_player_display(info.get('top_deaths'))})
                         import pandas as _pd
                         df_rows = _pd.DataFrame(rows)
-                        if 'top_kills' in df_rows.columns:
-                            df_rows['top_kills'] = df_rows['top_kills'].apply(lambda v: resolve_player_display(v))
-                        if 'top_cs_per_min' in df_rows.columns:
-                            df_rows['top_cs_per_min'] = df_rows['top_cs_per_min'].apply(lambda v: resolve_player_display(v))
-                        if 'top_deaths' in df_rows.columns:
-                            df_rows['top_deaths'] = df_rows['top_deaths'].apply(lambda v: resolve_player_display(v))
-                        st.dataframe(df_rows)
+                        for col in ('top_kills', 'top_cs_per_min', 'top_deaths'):
+                            if col in df_rows.columns:
+                                df_rows[col] = df_rows[col].apply(lambda v: resolve_player_display(v))
+
+                        # Render nicer HTML table for per-role
+                        try:
+                            cols = list(df_rows.columns)
+                            html = '<div style="padding:10px;border-radius:8px;background:transparent">'
+                            html += '<table style="border-collapse:collapse;width:100%;font-family:Inter,Helvetica,Arial;color:#dfe6ee">'
+                            html += '<thead><tr style="background:#0b1220;color:#9fb0c6">'
+                            for c in cols:
+                                hdr = c.replace('_', ' ').title()
+                                html += f'<th style="padding:10px;text-align:left">{hdr}</th>'
+                            html += '</tr></thead><tbody>'
+                            for i, idx in enumerate(df_rows.index):
+                                r = df_rows.loc[idx]
+                                bg = '#0f1113' if i % 2 == 0 else '#0b0d10'
+                                html += f'<tr style="background:{bg};border-top:1px solid rgba(255,255,255,0.02)">'
+                                for c in cols:
+                                    v = r.get(c, '')
+                                    if c == 'most_played' and v:
+                                        try:
+                                            vdisp = format_champion_display(v)
+                                        except Exception:
+                                            vdisp = str(v)
+                                    elif c == 'role':
+                                        vdisp = str(v).capitalize() if v else ''
+                                    else:
+                                        vdisp = resolve_player_display(v) if isinstance(v, str) and (c.startswith('top_') or c.endswith('_count')) else (str(v) if v is not None else '')
+                                    html += f'<td style="padding:10px;vertical-align:middle">{vdisp}</td>'
+                                html += '</tr>'
+                            html += '</tbody></table></div>'
+                            st.markdown(html, unsafe_allow_html=True)
+                        except Exception:
+                            st.dataframe(df_rows)
 
                 # Charts: champion play counts and ban counts (summary)
                 with st.expander('Graphiques : Champions joués & bannis (résumé)', expanded=True):
