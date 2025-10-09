@@ -538,7 +538,7 @@ def elo_color(elo: str) -> str:
         return '#3498db'  # blue
     if 'emer' in m or 'émeraude' in m or 'emeraude' in m:
         return '#9ae6b4'  # greenish
-    if 'plat' in m or 'platine' in m:
+    if 'plat' in m or 'platine' in m or 'platinum' in m:
         return '#5dade2'  # teal
     if 'gold' in m or 'or' in m:
         return '#f1c40f'  # yellow
@@ -650,7 +650,8 @@ if df is not None:
         st.subheader('Stats par rôle et Élo')
         # pivot table Elo x Role
         roles = ['Top', 'Jungle', 'Mid', 'Adc', 'Supp']
-        elo_order = ['Grandmaster', 'Master', 'Diamond', 'Emeraude', 'Platine', 'Gold', 'Silver', 'Bronze', 'Iron']
+        # Keep both French and English variants where normalization may vary
+        elo_order = ['Grandmaster', 'Master', 'Diamond', 'Emeraude', 'Platine', 'Platinum', 'Gold', 'Silver', 'Bronze', 'Iron']
 
         # Normalize role strings to a canonical set so 'Support' variants map to 'Supp'
         def _normalize_role(r):
@@ -785,7 +786,7 @@ if df is not None:
             'Master': '#8e44ad',
             'Diamond': '#3498db',
             'Emeraude': '#9ae6b4',
-            'Platine': '#5dade2',
+            'Platinum': '#5dade2',
             'Gold': '#f1c40f',
             'Silver': '#95a5a6',
             'Bronze': '#cd7f32',
