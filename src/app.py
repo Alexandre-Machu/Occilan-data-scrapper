@@ -755,8 +755,96 @@ if df is not None:
         # show styled table (display descending: Grandmaster on top, Iron at bottom)
         display_index = list(reversed(existing)) if existing else []
         display_pivot = pivot.reindex(display_index)
-        styled = display_pivot.style.format('{:.0f}').set_caption(f"Répartition par rôle - édition {edition}")
-        st.dataframe(styled)
+
+        # sanitize labels: remove underscores and present friendly names
+        display_pivot2 = display_pivot.copy()
+        # rename index to a nicer label
+        display_pivot2.index.name = 'Élo'
+        # replace underscores in column names and title-case where appropriate
+        def _clean_col(c):
+            try:
+                if isinstance(c, str) and '_' in c:
+                    return c.replace('_', ' ').title()
+                if isinstance(c, str):
+                    # keep short role names as-is but capitalize first letter
+                    return c.capitalize()
+                return c
+            except Exception:
+                return c
+        display_pivot2 = display_pivot2.rename(columns=_clean_col)
+
+        # Build a custom HTML table for precise styling (pill colors, spacing, bold Total)
+        try:
+            cols = list(display_pivot2.columns)
+            html = '<div style="padding:10px;border-radius:8px;background:transparent">'
+            html += f'<div style="color:#cfe7ff;font-size:18px;font-weight:600;margin-bottom:8px">Répartition par rôle - édition {edition}</div>'
+            html += '<div style="overflow:auto">'
+            html += '<table style="border-collapse:collapse;width:100%;font-family:Inter,Helvetica,Arial;color:#dfe6ee">'
+            # header
+            html += '<thead><tr style="background:#0b1220;color:#9fb0c6">'
+            html += '<th style="padding:10px;text-align:left;min-width:160px">Élo</th>'
+            for c in cols:
+                html += f'<th style="padding:10px;text-align:center">{c}</th>'
+            html += '</tr></thead><tbody>'
+
+            # rows with striping
+            for i, idx in enumerate(display_pivot2.index):
+                row_bg = '#0f1113' if i % 2 == 0 else '#0b0d10'
+                elo_color_hex = elo_color(idx)
+                html += f'<tr style="background:{row_bg};border-top:1px solid rgba(255,255,255,0.02)">' 
+                # elo pill cell
+                html += f'<td style="padding:10px;min-width:160px">'
+                html += f'<span style="display:inline-block;padding:8px 12px;border-radius:6px;background:{elo_color_hex};color:#071019;font-weight:700">{idx}</span>'
+                html += '</td>'
+                # values
+                for c in cols:
+                    val = display_pivot2.at[idx, c]
+                    try:
+                        disp = f"{int(val)}"
+                    except Exception:
+                        try:
+                            disp = f"{float(val):.0f}"
+                        except Exception:
+                            disp = str(val)
+                    # bold Total
+                    if c == 'Total':
+                        html += f'<td style="padding:10px;text-align:center;font-weight:700">{disp}</td>'
+                    else:
+                        html += f'<td style="padding:10px;text-align:center">{disp}</td>'
+                html += '</tr>'
+
+            # footer with totals per role
+            try:
+                totals_row = display_pivot2[cols].sum()
+                grand_total = int(totals_row.sum()) if not totals_row.empty else 0
+                html += '<tfoot>'
+                html += '<tr style="background:#081018;border-top:2px solid rgba(255,255,255,0.04)">' 
+                html += f'<td style="padding:10px;font-weight:700">Totaux</td>'
+                for c in cols:
+                    try:
+                        tval = int(totals_row.get(c, 0))
+                    except Exception:
+                        try:
+                            tval = int(float(totals_row.get(c, 0)))
+                        except Exception:
+                            tval = 0
+                    # highlight the grand total cell (if this is the Total column)
+                    if c == 'Total':
+                        html += f'<td style="padding:10px;text-align:center;font-weight:800;background:rgba(255,255,255,0.03)">{tval}</td>'
+                    else:
+                        html += f'<td style="padding:10px;text-align:center">{tval}</td>'
+                html += '</tr>'
+                html += '</tfoot>'
+            except Exception:
+                # ignore footer if computation fails
+                pass
+            html += '</tbody></table></div>'
+            html += '</div>'
+            st.markdown(html, unsafe_allow_html=True)
+        except Exception:
+            # fallback to the simple styled dataframe if HTML fails
+            styled = display_pivot2.style.format('{:.0f}').set_caption(f"Répartition par rôle - édition {edition}")
+            st.dataframe(styled)
 
         # Stacked bar: roles per elo
         pivot_reset = pivot.reset_index().melt(id_vars=['elo_norm', 'Total'] if 'Total' in pivot.columns else ['elo_norm'], var_name='role', value_name='count')
@@ -781,7 +869,7 @@ if df is not None:
             color=alt.Color('role:N', title='Role', scale=alt.Scale(domain=role_domain, range=role_range)),
             order=alt.Order('role:N')
         ).transform_filter(alt.datum.count > 0)
-        st.altair_chart(chart.properties(width=900, height=360), use_container_width=True)
+        st.altair_chart(chart.properties(width=900, height=360, title='Répartition des rôles par Élo'), use_container_width=True)
 
         # Total per Elo colored by elo_color
         totals = pivot['Total'].reset_index()
@@ -807,7 +895,7 @@ if df is not None:
             color=alt.Color('elo_norm:N', legend=None, scale=alt.Scale(domain=elo_domain, range=elo_range))
         )
         # make the bar larger and keep consistent width
-        st.altair_chart(bar.properties(width=600, height=420), use_container_width=True)
+        st.altair_chart(bar.properties(width=600, height=420, title='Total par Élo (nombre de joueurs)'), use_container_width=True)
 
         # Smooth line for Total per Elo (ordered by existing)
         totals['order'] = range(len(totals))
@@ -815,7 +903,7 @@ if df is not None:
             x=alt.X('elo_norm:N', sort=existing, title='Élo', axis=alt.Axis(labelAngle=0, labelAlign='center', labelBaseline='middle')),
             y=alt.Y('Total:Q', title='Total')
         )
-        st.altair_chart(line.properties(width=1000, height=320), use_container_width=True)
+        st.altair_chart(line.properties(width=1000, height=320, title='Tendance : Total par Élo'), use_container_width=True)
 
         # Seeding: classement des équipes par elo moyen
         try:
