@@ -26,11 +26,27 @@ def parse_opgg_adversaires_csv(path: Path, edition: int = None, split_alternates
     with open(path, 'r', encoding='utf-8', errors='replace', newline='') as fh:
         reader = csv.reader(fh)
         for r in reader:
-            # normalize to at least 6 columns; if more, join extras into the last column
+            # Normalize rows to 6 columns.
+            # Some exported sheets contain extra trailing columns (score, rank, points, etc.)
+            # and many empty trailing commas. Trim empty trailing columns first, then
+            # if there are still more than 6 columns join only the non-empty extras
+            # using a readable separator. This avoids creating sequences of commas when
+            # concatenating many empty strings.
+            # Note: csv.reader already respects quoted fields, so commas inside quotes
+            # remain part of the same field and are not split here.
+            # Trim pure-empty trailing columns
+            while len(r) > 0 and (r[-1] is None or str(r[-1]).strip() == ''):
+                r.pop()
+
             if len(r) < 6:
                 r += [''] * (6 - len(r))
             elif len(r) > 6:
-                r = r[:5] + [','.join(r[5:])]
+                # The export sometimes adds team-level columns after the five player columns
+                # (e.g., Score, Rang, Points). These are not part of player columns and
+                # must not be merged into the player fields. Keep only the first 6 columns
+                # (label + five player columns) and drop the rest.
+                r = r[:6]
+
             raw_rows.append(r)
 
     df_csv = pd.DataFrame(raw_rows)

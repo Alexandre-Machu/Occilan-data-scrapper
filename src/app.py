@@ -49,8 +49,8 @@ except Exception:
         pass
 
 st.sidebar.header('Configuration')
-# default to edition 6 for viewers
-edition = st.sidebar.selectbox('Choisir édition', [4, 5, 6, 7], index=2)
+# default to edition 7 for viewers
+edition = st.sidebar.selectbox('Choisir édition', [4, 5, 6, 7], index=3)
 # keep the old behaviour by default (distribution of alternate pseudos)
 split_alternates = True
 
@@ -634,7 +634,7 @@ if df is not None:
     tab1, tab2, tab3 = st.tabs(["Teams", "Stats Teams", "Stats Tournoi"])
 
     with tab1:
-        st.write("Clique sur le nom de l'équipe pour ouvrir la multi-OP.GG. Clique sur un joueur pour ouvrir son profil OP.GG.")
+        st.write("Clique sur le nom de l'équipe pour ouvrir le multi-OP.GG. Clique sur un joueur pour ouvrir son profil OP.GG.")
         # group by team
         grp = df.groupby(['team', 'opgg_multilink'])
         for (team_name, multi_link), group in grp:
