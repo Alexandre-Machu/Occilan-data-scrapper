@@ -752,8 +752,10 @@ if df is not None:
         existing = [e for e in elo_order if e in pivot.index]
         pivot = pivot.reindex(existing)
 
-        # show styled table
-        styled = pivot.style.format('{:.0f}').set_caption(f"Répartition par rôle - édition {edition}")
+        # show styled table (display descending: Grandmaster on top, Iron at bottom)
+        display_index = list(reversed(existing)) if existing else []
+        display_pivot = pivot.reindex(display_index)
+        styled = display_pivot.style.format('{:.0f}').set_caption(f"Répartition par rôle - édition {edition}")
         st.dataframe(styled)
 
         # Stacked bar: roles per elo
