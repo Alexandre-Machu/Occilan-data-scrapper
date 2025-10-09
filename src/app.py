@@ -116,7 +116,6 @@ files_for_edition = sorted([p for p in proc_dir.glob(f'match_stats_edition{editi
 def resolve_player_display(player_id: str) -> str:
     """Try to resolve a potentially opaque player id (puuid) into a summonerName
     by scanning processed files and cached matches. Returns the original value if not found."""
-    # robust resolver that checks multiple sources for puuid -> summonerName
     try:
         if not isinstance(player_id, str):
             return player_id
@@ -125,26 +124,19 @@ def resolve_player_display(player_id: str) -> str:
         if ' ' in player_id:
             return player_id
 
-        # If the value is already an abbreviated display (contains ellipsis), try to
-        # match it against known puuid keys by prefix/suffix before giving up.
+        # Support abbreviated puuid display like 'abcdef…1234'
         abbrev_prefix = abbrev_suffix = None
         if '\u2026' in player_id or '...' in player_id:
-            # split on either unicode ellipsis or three dots
-            if '\u2026' in player_id:
-                parts = player_id.split('\u2026')
-            else:
-                parts = player_id.split('...')
+            parts = player_id.split('\u2026') if '\u2026' in player_id else player_id.split('...')
             if len(parts) == 2:
                 abbrev_prefix, abbrev_suffix = parts[0], parts[1]
 
-        # 1) module-level puuid_map (built from cached matches / processed files)
+        # 1) In-memory puuid_map if present
         try:
-            if 'puuid_map' in globals() and isinstance(globals().get('puuid_map'), dict):
-                pm = globals().get('puuid_map')
-                # direct full-key match
+            pm = globals().get('puuid_map') if 'puuid_map' in globals() else None
+            if isinstance(pm, dict) and pm:
                 if player_id in pm:
                     return pm.get(player_id)
-                # if we have an abbreviation, try to match by prefix/suffix
                 if abbrev_prefix is not None and abbrev_suffix is not None:
                     for k, v in pm.items():
                         if k.startswith(abbrev_prefix) and k.endswith(abbrev_suffix):
@@ -152,7 +144,7 @@ def resolve_player_display(player_id: str) -> str:
         except Exception:
             pass
 
-        # 2) check processed files for an explicit puuid_map (fast) or participant objects
+        # 2) Scan processed files for explicit puuid_map or participant objects
         proc_dir = _Path(__file__).parent.parent / 'data' / 'processed'
         if proc_dir.exists():
             for p in sorted(proc_dir.glob('*.json'), key=lambda x: x.stat().st_mtime, reverse=True):
@@ -161,7 +153,6 @@ def resolve_player_display(player_id: str) -> str:
                 except Exception:
                     continue
 
-                # prefer an explicit puuid_map if present
                 try:
                     pm = d.get('puuid_map') or {}
                     if isinstance(pm, dict) and pm:
@@ -174,20 +165,16 @@ def resolve_player_display(player_id: str) -> str:
                 except Exception:
                     pass
 
-                # fallback: iterate matches[] participants which may be dicts
                 try:
                     for m in d.get('matches', []) or []:
                         parts = m.get('participants') or []
-                        # if participants are dict-like
                         if parts and isinstance(parts[0], dict):
                             for part in parts:
-                                try:
-                                    if part.get('puuid') == player_id or part.get('player') == player_id:
-                                        return part.get('summonerName') or part.get('player') or part.get('player_name') or player_id
-                                except Exception:
-                                    continue
+                                pu = part.get('puuid') or part.get('player')
+                                name = part.get('summonerName') or part.get('riotIdGameName') or part.get('player') or part.get('player_name') or part.get('summonerId')
+                                if pu == player_id:
+                                    return name or player_id
                         else:
-                            # participants might be simple puuid strings; try to load cached full match by id
                             mid = m.get('matchId') or m.get('gameId')
                             if mid:
                                 cache_p = _Path(__file__).parent.parent / 'data' / 'cache' / 'matches' / f"{mid}.json"
@@ -196,86 +183,68 @@ def resolve_player_display(player_id: str) -> str:
                                         full = json.loads(cache_p.read_text(encoding='utf-8'))
                                         for fp in (full.get('info') or {}).get('participants', []):
                                             if fp.get('puuid') == player_id:
-                                                    # prefer summonerName, then riotIdGameName, then summonerId
-                                                    name = fp.get('summonerName') or fp.get('riotIdGameName') or fp.get('summonerId')
-                                                    if isinstance(name, str):
-                                                        name = name.strip()
-                                                    if name:
-                                                        return name
-                                                    return player_id
+                                                name = fp.get('summonerName') or fp.get('riotIdGameName') or fp.get('summonerId')
+                                                return name or player_id
                                     except Exception:
                                         continue
                 except Exception:
                     pass
 
-        # 3) search raw cached full matches directly
+        # 3) Scan cached full matches directly
         cache_dir = _Path(__file__).parent.parent / 'data' / 'cache' / 'matches'
         if cache_dir.exists():
             for f in cache_dir.glob('*.json'):
                 try:
                     mj = json.loads(f.read_text(encoding='utf-8'))
                     for p in (mj.get('info') or {}).get('participants', []):
-                            pu = p.get('puuid')
-                            if not pu:
-                                continue
-                            matched = False
-                            # exact match
-                            if pu == player_id:
-                                matched = True
-                            # abbreviated match: prefix\u2026suffix
-                            elif abbrev_prefix is not None and abbrev_suffix is not None:
-                                try:
-                                    if pu.startswith(abbrev_prefix) and pu.endswith(abbrev_suffix):
-                                        matched = True
-                                except Exception:
-                                    matched = False
-
-                            if not matched:
-                                continue
-
-                            # prefer summonerName then riotIdGameName then summonerId
-                            name = p.get('summonerName') or p.get('riotIdGameName') or p.get('summonerId')
-                            if isinstance(name, str):
-                                name = name.strip()
-                            if name:
-                                return name
-
-                            # as a last resort, if we have the Riot API key, try to fetch by full puuid and cache
+                        pu = p.get('puuid')
+                        if not pu:
+                            continue
+                        matched = (pu == player_id)
+                        if not matched and abbrev_prefix is not None and abbrev_suffix is not None:
                             try:
-                                _api_key = os.environ.get('OCCILAN_RIOT_API_KEY')
-                                _region = os.environ.get('OCCILAN_RIOT_API_REGION', 'euw')
-                                if _api_key:
-                                    res = get_summoner_by_puuid(pu, api_key=_api_key, region=_region, use_cache=True)
-                                    if res and isinstance(res, dict):
-                                        disp = res.get('displayName') or (res.get('raw') or {}).get('name')
-                                        if disp:
-                                            return disp
+                                matched = pu.startswith(abbrev_prefix) and pu.endswith(abbrev_suffix)
                             except Exception:
-                                pass
-                            # if nothing, return the abbreviated input
-                            return player_id
+                                matched = False
+                        if not matched:
+                            continue
+                        name = p.get('summonerName') or p.get('riotIdGameName') or p.get('summonerId')
+                        if isinstance(name, str):
+                            name = name.strip()
+                        if name:
+                            return name
+                        # Optional API resolve if key present
+                        try:
+                            _api_key = os.environ.get('OCCILAN_RIOT_API_KEY')
+                            _region = os.environ.get('OCCILAN_RIOT_API_REGION', 'euw')
+                            if _api_key:
+                                res = get_summoner_by_puuid(pu, api_key=_api_key, region=_region, use_cache=True)
+                                if res and isinstance(res, dict):
+                                    disp = res.get('displayName') or (res.get('raw') or {}).get('name')
+                                    if disp:
+                                        return disp
+                        except Exception:
+                            pass
+                        return player_id
                 except Exception:
                     continue
     except Exception:
         pass
 
-    # If we couldn't resolve, try to abbreviate if it looks long/opaque (keep original short names intact)
+    # Abbreviate opaque ids if unresolved
     try:
         if isinstance(player_id, str) and len(player_id) >= 20 and ' ' not in player_id:
-            # As last resort, if we have a Riot API key, try to resolve the puuid via API (and cache)
             try:
                 _api_key = os.environ.get('OCCILAN_RIOT_API_KEY')
                 _region = os.environ.get('OCCILAN_RIOT_API_REGION', 'euw')
                 if _api_key:
                     res = get_summoner_by_puuid(player_id, api_key=_api_key, region=_region, use_cache=True)
                     if res and isinstance(res, dict):
-                        # prefer displayName then raw.name
                         disp = res.get('displayName') or (res.get('raw') or {}).get('name') or (res.get('raw') or {}).get('summonerName')
                         if disp:
                             return disp
             except Exception:
                 pass
-            # keep the short display used elsewhere
             return f"{player_id[:6]}\u2026{player_id[-4:]}"
     except Exception:
         pass
@@ -630,10 +599,10 @@ if df is not None:
 
     st.success(f"{len(df)} joueurs chargés (édition {edition})")
 
-    # Tabs: Teams / Stats Teams / Stats Tournoi
-    tab1, tab2, tab3 = st.tabs(["Teams", "Stats Teams", "Stats Tournoi"])
+    # Tabs (reordered): Teams / Stats tournoi / Stats games / Stats équipes
+    tab1_teams, tab2_tournoi, tab3_games, tab4_equipes = st.tabs(["Teams", "Stats tournoi", "Stats games", "Stats équipes"])
 
-    with tab1:
+    with tab1_teams:
         st.write("Clique sur le nom de l'équipe pour ouvrir le multi-OP.GG. Clique sur un joueur pour ouvrir son profil OP.GG.")
         # group by team
         grp = df.groupby(['team', 'opgg_multilink'])
@@ -646,7 +615,8 @@ if df is not None:
         st.download_button('Exporter CSV nettoyé', df.to_csv(index=False).encode('utf-8'), file_name=f'opgg_adversaires_edition_{edition}_clean.csv')
         st.download_button('Exporter JSON', df.to_json(orient='records', force_ascii=False).encode('utf-8'), file_name=f'opgg_adversaires_edition_{edition}_clean.json')
 
-    with tab2:
+    # Stats tournoi: rôle/élo (this section moved under 'Stats tournoi')
+    with tab2_tournoi:
         st.subheader('Stats par rôle et Élo')
         # pivot table Elo x Role
         roles = ['Top', 'Jungle', 'Mid', 'Adc', 'Supp']
@@ -1128,12 +1098,237 @@ if df is not None:
         except Exception as _e:
             st.error(f"Erreur lors du calcul du seeding: {_e}")
 
-    # Stats Tournoi: load latest processed file for this edition
-    with tab3:
+    # Detailed Teams tab: team selector -> KPIs -> players table (Excel offline preferred)
+    with tab4_equipes:
+        st.subheader('Stats par équipe (détaillé)')
+
+        # Prefer offline Excel stats if available
+        excel_json_path = _Path(__file__).parent.parent / 'data' / 'processed' / f'excel_stats_edition{edition}.json'
+        if excel_json_path.exists():
+            try:
+                payload = json.loads(excel_json_path.read_text(encoding='utf-8'))
+            except Exception as _e:
+                st.error(f"Impossible de lire {excel_json_path.name}: {_e}")
+                payload = {}
+
+            teams_map = payload.get('teams') or {}
+            if not teams_map:
+                st.info('Aucune équipe détectée dans le JSON Excel. Retrait vers les stats traitées…')
+            else:
+                team_names = sorted(list(teams_map.keys()))
+                sel_team = st.selectbox('Choisir une équipe', team_names, key='excel_detailed_team')
+
+                # KPIs d'équipe depuis Excel (affiche toutes les stats disponibles)
+                st.markdown('### KPIs équipe (Excel)')
+                tstats = (payload.get('team_stats') or {}).get(sel_team, {})
+                # 1ère rangée
+                cols_top = st.columns(4)
+                cols_top[0].metric('Matches joués', tstats.get('matches', '—'))
+                cols_top[1].metric('Victoires', tstats.get('wins', '—'))
+                cols_top[2].metric('Défaites', tstats.get('losses', '—'))
+                cols_top[3].metric('Winrate', tstats.get('winrate', '—'))
+                # 2ème rangée (durées)
+                cols_bot = st.columns(3)
+                cols_bot[0].metric('Durée moyenne', tstats.get('avg_duration', '—'))
+                cols_bot[1].metric('Plus court', tstats.get('min_duration', '—'))
+                cols_bot[2].metric('Plus long', tstats.get('max_duration', '—'))
+
+                # Joueurs (offline Excel) — pas de sélecteur joueur pour l'instant
+                st.markdown('### Joueurs (Excel)')
+                players = teams_map.get(sel_team, [])
+                # Tableau complet joueurs
+                try:
+                    import pandas as _pd
+                    rows = []
+                    for p in players:
+                        s = p.get('stats') or {}
+                        rows.append({
+                            'Position': p.get('position') or '',
+                            'Joueur': p.get('riot_name') or '',
+                            'KDA': s.get('KDA', ''),
+                            'Kills/G': s.get('Kills/G', ''),
+                            'Deaths/G': s.get('Deaths/G', ''),
+                            'Assists/G': s.get('Assists/G', ''),
+                            'CS/min': s.get('CS/min', ''),
+                            'Vision/G': s.get('Vision/G', ''),
+                            'Champions': s.get('Champions', ''),
+                        })
+                    st.dataframe(_pd.DataFrame(rows), use_container_width=True)
+                except Exception:
+                    pass
+                # Skip processed-match history in Excel mode to remain fully offline
+                st.stop()
+
+    # Helper: load teams from processed players CSV (edition-specific) or fallback to teams in df
+        def load_teams_for_edition(ed):
+            proc_csv = _Path(__file__).parent.parent / 'data' / 'processed' / f'players_edition{ed}.csv'
+            teams = {}
+            try:
+                if proc_csv.exists():
+                    import pandas as _pd
+                    p = _pd.read_csv(proc_csv)
+                    for _, r in p.iterrows():
+                        t = r.get('team') or '—'
+                        name = r.get('summoner') or r.get('summoner_raw') or ''
+                        teams.setdefault(t, []).append(str(name))
+                    return teams
+            except Exception:
+                pass
+            # fallback: use current df grouping
+            try:
+                for (team_name, _), g in df.groupby(['team','opgg_multilink']):
+                    names = [ (r.get('summoner') or r.get('summoner_raw') or '') for _, r in g.iterrows() ]
+                    teams.setdefault(team_name or '—', []).extend(names)
+            except Exception:
+                pass
+            return teams
+
+        teams_map = load_teams_for_edition(edition)
+        if not teams_map:
+            st.info('Aucune équipe détectée pour cette édition.')
+        else:
+            team_names = sorted(teams_map.keys())
+            sel_team = st.selectbox('Choisir une équipe', team_names)
+            players_for_team = teams_map.get(sel_team, [])
+            # show basic aggregated KPIs for team using processed match stats if available
+            st.markdown('### KPIs équipe')
+            # compute team-level aggregates from processed match stats if present
+            try:
+                proc_files = sorted([p for p in (_Path(__file__).parent.parent / 'data' / 'processed').glob(f'match_stats_edition{edition}_*.json')], key=lambda p: p.stat().st_mtime, reverse=True)
+                team_kpis = {}
+                if proc_files:
+                    import json as _json
+                    data = _json.loads(proc_files[0].read_text(encoding='utf-8'))
+                    # aggregate by team from matches[] if available
+                    matches = data.get('matches', [])
+                    played = 0
+                    wins = 0
+                    durations = []
+                    for m in matches:
+                        parts = m.get('participants') or []
+                        # participants may be dicts or puuid strings; try to find if any summoner in team is present
+                        found = False
+                        team_won = None
+                        for p in parts:
+                            try:
+                                if isinstance(p, dict):
+                                    name = p.get('summonerName') or p.get('player') or ''
+                                    if name in players_for_team:
+                                        found = True
+                                        team_won = p.get('win') if 'win' in p else team_won
+                                else:
+                                    # string puuid -> try to resolve
+                                    disp = resolve_player_display(p)
+                                    if disp in players_for_team:
+                                        found = True
+                            except Exception:
+                                continue
+                        if found:
+                            played += 1
+                            try:
+                                if team_won:
+                                    wins += 1 if team_won else 0
+                            except Exception:
+                                pass
+                            try:
+                                dur = m.get('duration') or (m.get('info') or {}).get('gameDuration')
+                                if dur:
+                                    durations.append(int(dur))
+                            except Exception:
+                                pass
+                    team_kpis['matches_played'] = played
+                    team_kpis['wins'] = wins
+                    team_kpis['losses'] = played - wins
+                    team_kpis['winrate'] = f"{(wins/played*100):.1f}%" if played else 'N/A'
+                    if durations:
+                        import statistics
+                        team_kpis['avg_duration'] = f"{int(statistics.mean(durations)//60)}:{int(statistics.mean(durations)%60):02d}"
+                    else:
+                        team_kpis['avg_duration'] = 'N/A'
+                # display KPIs
+                cols = st.columns(4)
+                cols[0].metric('Matches joués', team_kpis.get('matches_played', 0))
+                cols[1].metric('Victoires', team_kpis.get('wins', 0))
+                cols[2].metric('Défaites', team_kpis.get('losses', 0))
+                cols[3].metric('Winrate', team_kpis.get('winrate', 'N/A'))
+            except Exception as e:
+                st.error(f"Erreur en calculant KPIs équipe: {e}")
+
+            st.markdown('### Joueurs')
+            sel_player = st.selectbox('Choisir un joueur', ['--'] + players_for_team)
+            if sel_player and sel_player != '--':
+                # show basic player KPIs by scanning processed matches
+                try:
+                    # gather matches containing this player
+                    proc_files = sorted([p for p in (_Path(__file__).parent.parent / 'data' / 'processed').glob(f'match_stats_edition{edition}_*.json')], key=lambda p: p.stat().st_mtime, reverse=True)
+                    history = []
+                    if proc_files:
+                        import json as _json
+                        data = _json.loads(proc_files[0].read_text(encoding='utf-8'))
+                        for m in data.get('matches', []) or []:
+                            parts = m.get('participants') or []
+                            for p in parts:
+                                try:
+                                    if isinstance(p, dict):
+                                        name = p.get('summonerName') or p.get('player') or ''
+                                        if name == sel_player:
+                                            history.append(p)
+                                    else:
+                                        # puuid string
+                                        if resolve_player_display(p) == sel_player:
+                                            # try to load cached full match
+                                            cache_p = _Path(__file__).parent.parent / 'data' / 'cache' / 'matches' / f"{m.get('matchId')}.json"
+                                            if cache_p.exists():
+                                                full = _json.loads(cache_p.read_text(encoding='utf-8'))
+                                                for fp in (full.get('info') or {}).get('participants', []):
+                                                    if fp.get('summonerName') == sel_player:
+                                                        history.append(fp)
+                                except Exception:
+                                    continue
+                    # build summary KPIs
+                    if history:
+                        import statistics
+                        kdas = []
+                        kills = []
+                        deaths = []
+                        assists = []
+                        cs = []
+                        for h in history:
+                            kills.append(int(h.get('kills', 0)))
+                            deaths.append(int(h.get('deaths', 0)))
+                            assists.append(int(h.get('assists', 0)))
+                            cs.append(int(h.get('totalMinionsKilled', 0) or h.get('cs', 0) or 0))
+                            kd = (int(h.get('kills', 0)) + int(h.get('assists', 0))) / (max(1, int(h.get('deaths', 0))))
+                            kdas.append(kd)
+                        cols = st.columns(5)
+                        cols[0].metric('KDA moyen', f"{statistics.mean(kdas):.2f}")
+                        cols[1].metric('Kills moyen', f"{statistics.mean(kills):.1f}")
+                        cols[2].metric('CS moyen', f"{statistics.mean(cs):.1f}")
+                        cols[3].metric('Vision moyen', '—')
+                        cols[4].metric('KP', '—')
+
+                        st.markdown('#### Historique des parties')
+                        # compact table of match rows
+                        try:
+                            import pandas as _pd
+                            rows = []
+                            for h in history:
+                                rows.append({'date': (h.get('gameDate') or h.get('gameCreation') or '') , 'champion': h.get('championName') or h.get('champion') , 'kills': h.get('kills'), 'deaths': h.get('deaths'), 'assists': h.get('assists'), 'cs': h.get('totalMinionsKilled', h.get('cs'))})
+                            df_hist = _pd.DataFrame(rows)
+                            st.dataframe(df_hist)
+                        except Exception:
+                            st.write(history)
+                    else:
+                        st.info('Aucune partie trouvée pour ce joueur dans les fichiers traités.')
+                except Exception as e:
+                    st.error(f"Erreur en récupérant l'historique: {e}")
+
+    # Stats games: champions/ban/tops (moved under 'Stats games')
+    with tab3_games:
         proc_dir = _Path(__file__).parent.parent / 'data' / 'processed'
         files = sorted([p for p in proc_dir.glob(f'match_stats_edition{edition}_*.json')], key=lambda p: p.stat().st_mtime, reverse=True)
         if not files:
-            st.info('Aucun fichier de stats tournoi traité pour cette édition. Traite les matchs depuis la sidebar.')
+            st.info('Aucun fichier de stats traité pour cette édition. Traite les matchs depuis la sidebar.')
         else:
             latest = files[0]
             # do not expose raw filename to viewers; show a brief summary instead
@@ -1149,7 +1344,7 @@ if df is not None:
                 data = _json.loads(latest.read_text(encoding='utf-8'))
                 agg = data.get('agg', {})
                 # Collapsible: Aperçu agrégé tournoi (metrics)
-                with st.expander('Aperçu agrégé tournoi', expanded=True):
+                with st.expander('Aperçu agrégé (games)', expanded=True):
                     # Champions played / banned in two columns
                     cols = st.columns(2)
                     with cols[0]:
@@ -1173,7 +1368,7 @@ if df is not None:
                             st.metric('Champion le plus banni', f"{format_champion_display(mb_name)} ({agg.get('most_banned_count', 0)})")
 
                 # Top players table (display player summonerName when possible)
-                with st.expander('Tops par statistiques', expanded=True):
+                with st.expander('Tops par statistiques (games)', expanded=True):
                     st.markdown('### Tops par statistiques')
                     tops = []
                     for key in ['top_kills','top_cs_per_min','top_deaths','top_kda','top_vision']:
@@ -1472,3 +1667,5 @@ if df is not None:
                     st.download_button('Télécharger JSON tournoi (brut)', latest.read_bytes(), file_name=latest.name, mime='application/json')
             except Exception:
                 pass
+
+    # Riot IDs tab removed per request
