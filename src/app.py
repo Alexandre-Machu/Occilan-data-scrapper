@@ -650,8 +650,8 @@ if df is not None:
         st.subheader('Stats par rôle et Élo')
         # pivot table Elo x Role
         roles = ['Top', 'Jungle', 'Mid', 'Adc', 'Supp']
-        # Keep both French and English variants where normalization may vary
-        elo_order = ['Grandmaster', 'Master', 'Diamond', 'Emeraude', 'Platine', 'Platinum', 'Gold', 'Silver', 'Bronze', 'Iron']
+        # Order from weakest -> strongest for left-to-right axis and use normalized French names
+        elo_order = ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Emeraude', 'Diamond', 'Master', 'Grandmaster']
 
         # Normalize role strings to a canonical set so 'Support' variants map to 'Supp'
         def _normalize_role(r):
@@ -769,13 +769,17 @@ if df is not None:
         role_domain = [r for r in roles if r in pivot_reset['role'].unique()]
         role_range = [role_colors.get(r, '#999999') for r in role_domain]
 
+        # Display stacked bars with Elo on the X axis from weakest -> strongest
+        # use `existing` (already ordered weakest->strongest) so Iron is left and Grandmaster is right
+        # Horizontal stacked bar: Elo on the Y axis (weak -> strong), counts across X
         chart = alt.Chart(pivot_reset).mark_bar().encode(
             x=alt.X('sum(count):Q', title='Count'),
-            y=alt.Y('elo_norm:N', sort=existing, title='Élo'),
+            # show Grandmaster at the top: reverse the existing (weak->strong) order
+            y=alt.Y('elo_norm:N', sort=list(reversed(existing)), title='Élo', axis=alt.Axis(labelAngle=0, labelAlign='right', labelFontSize=12)),
             color=alt.Color('role:N', title='Role', scale=alt.Scale(domain=role_domain, range=role_range)),
             order=alt.Order('role:N')
         ).transform_filter(alt.datum.count > 0)
-        st.altair_chart(chart.properties(width=800, height=340), use_container_width=True)
+        st.altair_chart(chart.properties(width=900, height=360), use_container_width=True)
 
         # Total per Elo colored by elo_color
         totals = pivot['Total'].reset_index()
@@ -796,8 +800,8 @@ if df is not None:
         elo_range = [elo_colors_map.get(e, '#cccccc') for e in elo_domain]
 
         bar = alt.Chart(totals).mark_bar().encode(
-            x=alt.X('Total:Q', title='Total'),
-            y=alt.Y('elo_norm:N', sort=existing, title='Élo'),
+            x=alt.X('elo_norm:N', sort=existing, title='Élo', axis=alt.Axis(labelAngle=0, labelAlign='center', labelBaseline='middle')),
+            y=alt.Y('Total:Q', title='Total'),
             color=alt.Color('elo_norm:N', legend=None, scale=alt.Scale(domain=elo_domain, range=elo_range))
         )
         # make the bar larger and keep consistent width
@@ -806,7 +810,7 @@ if df is not None:
         # Smooth line for Total per Elo (ordered by existing)
         totals['order'] = range(len(totals))
         line = alt.Chart(totals).mark_line(interpolate='monotone', point=True, strokeWidth=3, color='#5dade2').encode(
-            x=alt.X('elo_norm:N', sort=existing, title='Élo'),
+            x=alt.X('elo_norm:N', sort=existing, title='Élo', axis=alt.Axis(labelAngle=0, labelAlign='center', labelBaseline='middle')),
             y=alt.Y('Total:Q', title='Total')
         )
         st.altair_chart(line.properties(width=1000, height=320), use_container_width=True)
