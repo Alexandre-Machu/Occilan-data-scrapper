@@ -817,6 +817,210 @@ if df is not None:
         )
         st.altair_chart(line.properties(width=1000, height=320), use_container_width=True)
 
+        # Seeding: classement des équipes par elo moyen
+        try:
+            st.subheader('Seeding / Classement des équipes')
+            # scoring: base mapping for tiers below Master, then LP-aware scoring for Master/Grandmaster
+            base_map = {
+                'Iron': 0,
+                'Bronze': 1,
+                'Silver': 2,
+                'Gold': 3,
+                'Platinum': 4,
+                'Emeraude': 5,
+                'Diamond': 6,
+            }
+
+            # Master starts at 8 (Master(0) -> 8) and gains +1 per 100 LP
+            MASTER_BASE = 8
+            # Grandmaster represents Master + 700LP -> MASTER_BASE + 7 == 15 (Grandmaster base)
+            GM_OFFSET = 7
+
+            def score_from_row(elo_norm, elo_raw):
+                """Return a numeric score for a player's elo row.
+
+                - tiers below Master use base_map
+                - Master: MASTER_BASE + floor(LP / 100)
+                - Grandmaster: MASTER_BASE + GM_OFFSET + floor(LP / 100) (if LP present)
+                """
+                try:
+                    if not isinstance(elo_norm, str) or not elo_norm:
+                        return None
+                    en = elo_norm.strip()
+                    # direct below-master mapping
+                    if en in base_map:
+                        return base_map[en]
+
+                    # extract LP if present in elo_raw like 'Master (300)'
+                    lp = 0
+                    try:
+                        if isinstance(elo_raw, str):
+                            m = re.search(r"\((\d+)\)", elo_raw)
+                            if m:
+                                lp = int(m.group(1))
+                    except Exception:
+                        lp = 0
+
+                    low = en.lower()
+                    if 'master' in low and 'grand' not in low:
+                        return MASTER_BASE + (lp // 100)
+                    if 'grand' in low:
+                        # Grandmaster baseline equals MASTER_BASE + GM_OFFSET (i.e. 15)
+                        return MASTER_BASE + GM_OFFSET + (lp // 100)
+                except Exception:
+                    return None
+                return None
+
+            def avg_label_from_score(avg):
+                if avg is None:
+                    return ''
+                try:
+                    v = float(avg)
+                except Exception:
+                    return ''
+                if v >= MASTER_BASE + GM_OFFSET:
+                    return 'Grandmaster'
+                if v >= MASTER_BASE:
+                    return 'Master'
+                # revert to integer bucket for lower tiers
+                mapping_rev = {v: k for k, v in base_map.items()}
+                key = int(round(v))
+                return mapping_rev.get(key, '')
+
+            # group by team and compute average elo score
+            teams = []
+            for team, g in df.groupby('team'):
+                # compute numeric scores per player using elo_norm and elo_raw
+                scores = []
+                for _, row in g.iterrows():
+                    s = score_from_row(row.get('elo_norm'), row.get('elo_raw'))
+                    if s is not None:
+                        scores.append(s)
+                if not scores:
+                    avg = None
+                else:
+                    avg = sum(scores) / len(scores)
+
+                # prepare a compact sample of players with elos
+                players = []
+                for _, row in g.sort_values('elo_raw', ascending=False).head(6).iterrows():
+                    name = row.get('summoner') or row.get('summoner_raw') or ''
+                    e = row.get('elo_norm') or ''
+                    players.append(f"{name} ({e})" if name else f"({e})")
+
+                teams.append({'team': team or '—', 'players_count': len(g), 'avg_score': avg, 'sample_players': ', '.join(players)})
+
+            import pandas as _pd
+            df_seed = _pd.DataFrame(teams)
+            # drop teams with no score info at the bottom
+            df_with_score = df_seed[df_seed['avg_score'].notna()].copy()
+            df_without = df_seed[df_seed['avg_score'].isna()].copy()
+
+            # sort by avg_score desc, tie-breaker players_count desc
+            if not df_with_score.empty:
+                df_with_score = df_with_score.sort_values(['avg_score', 'players_count'], ascending=[False, False])
+                df_with_score['rank'] = range(1, len(df_with_score) + 1)
+                # map avg_score back to a human label (Master/Grandmaster with LP-adjusted thresholds)
+                df_with_score['avg_elo_label'] = df_with_score['avg_score'].apply(lambda v: avg_label_from_score(v) if v is not None else '')
+
+            if not df_without.empty:
+                df_without = df_without.sort_values('team')
+                df_without['rank'] = ['-'] * len(df_without)
+                df_without['avg_elo_label'] = ['Unknown'] * len(df_without)
+
+            final_seed = _pd.concat([df_with_score, df_without], ignore_index=True, sort=False)
+            if not final_seed.empty:
+                # Only show rank, team, avg_score and avg_elo_label — keep the table compact
+                display_df = final_seed[['rank', 'team', 'avg_score', 'avg_elo_label']].copy()
+                # ensure avg_score is nicely formatted
+                def _fmt(v):
+                    try:
+                        return f"{float(v):.2f}"
+                    except Exception:
+                        return ''
+                display_df['avg_score'] = display_df['avg_score'].apply(_fmt)
+
+                # Build a compact HTML table with colored elo badges for better visuals
+                try:
+                    html = '<div style="background:#0f1113;padding:10px;border-radius:8px;color:#dfe6ee">'
+                    html += '<table style="width:100%;border-collapse:collapse;font-family:Inter,Helvetica,Arial;color:#e6eef6">'
+                    html += '<thead><tr style="text-align:left;color:#9fb0c6"><th style="padding:8px">Rank</th><th style="padding:8px">Team</th><th style="padding:8px">Avg Score</th><th style="padding:8px">Estimated Tier</th></tr></thead><tbody>'
+                    for _, r in display_df.iterrows():
+                        rank = r.get('rank', '')
+                        team = r.get('team', '')
+                        avg = r.get('avg_score', '')
+                        label = r.get('avg_elo_label', '')
+                        # ensure rank is rendered as an integer (no decimals/commas)
+                        try:
+                            if isinstance(rank, (float,)):
+                                rank_disp = str(int(rank))
+                            else:
+                                # try cast to int for numpy types, otherwise keep as-is (e.g. '-')
+                                rank_disp = str(int(rank)) if (isinstance(rank, (int,)) or (isinstance(rank, str) and rank.isdigit())) else str(rank)
+                        except Exception:
+                            try:
+                                rank_disp = str(int(float(rank)))
+                            except Exception:
+                                rank_disp = str(rank)
+
+                        # color the label using elo_color helper
+                        try:
+                            color = elo_color(label)
+                        except Exception:
+                            color = '#777777'
+                        badge = f'<span style="display:inline-block;background:{color};padding:6px 10px;border-radius:999px;font-weight:700;color:#071019">{label}</span>' if label else ''
+                        html += f'<tr style="border-top:1px solid #1e2933"><td style="padding:8px">{rank_disp}</td><td style="padding:8px">{team}</td><td style="padding:8px;font-weight:600">{avg}</td><td style="padding:8px">{badge}</td></tr>'
+                    html += '</tbody></table>'
+
+                    # Build a compact legend below the table similar to the provided image
+                    tiers = [
+                        ('Iron', 'Iron', 1),
+                        ('Bronze', 'Bronze', 2),
+                        ('Silver', 'Silver', 3),
+                        ('Gold', 'Gold', 4),
+                        ('Platin', 'Platin', 5),
+                        ('Emeraude', 'Emeraude', 6),
+                        ('Diamant', 'Diamant', 7),
+                        ('Master', 'Master', 8),
+                        ('Grandmaster', 'Grandmaster', 15),
+                    ]
+                    legend_html = (
+                        '<div style="margin-top:12px;padding:8px;border-radius:8px;background:transparent;">'
+                        '<div style="display:inline-block;background:rgba(0,0,0,0.35);padding:6px;border-radius:6px">'
+                        '<table style="border-collapse:collapse;font-size:14px;font-family:Inter,Helvetica,Arial;color:#dfe6ee;">'
+                    )
+                    for name, key, pts in tiers:
+                        try:
+                            c = elo_color(key)
+                        except Exception:
+                            c = '#777777'
+                        # each row: colored pill on left, points cell on right with spacing
+                        legend_html += (
+                            '<tr style="height:34px">'
+                            f'<td style="padding:4px 10px;border-radius:6px 0 0 6px;background:{c};color:#071019;font-weight:700;min-width:120px">{name}</td>'
+                            f'<td style="padding:4px 12px;background:rgba(0,0,0,0.45);color:#dfe6ee;border-left:1px solid rgba(255,255,255,0.04);min-width:36px;text-align:center">{pts}</td>'
+                            '</tr>'
+                        )
+                    legend_html += '</table></div>'
+                    # explanatory text below legend
+                    legend_html += (
+                        '<div style="margin-top:8px;color:#aab8c6;font-size:13px;max-width:360px">'
+                        'Explication: la colonne <strong>Rank</strong> est un entier (1 = meilleur seed). Les valeurs numériques à droite correspondent au score de base par tier. ' 
+                        'Pour Master, le score de base est 8 et s\'augmente de +1 tous les 100 LP. Grandmaster a une base 15. Ces scores sont agrégés en moyenne par équipe pour déterminer le seed.'
+                        '</div>'
+                    )
+                    legend_html += '</div>'
+                    html += legend_html
+                    html += '</div>'
+                    st.markdown(html, unsafe_allow_html=True)
+                except Exception:
+                    # fallback to plain dataframe if HTML rendering fails
+                    st.dataframe(display_df)
+            else:
+                st.info('Aucune information d\'élo disponible pour calculer le seeding.')
+        except Exception as _e:
+            st.error(f"Erreur lors du calcul du seeding: {_e}")
+
     # Stats Tournoi: load latest processed file for this edition
     with tab3:
         proc_dir = _Path(__file__).parent.parent / 'data' / 'processed'
